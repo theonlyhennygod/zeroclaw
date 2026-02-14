@@ -168,20 +168,12 @@ pub struct CanvasConfig {
     /// Enable Live Canvas feature (default: true)
     #[serde(default = "default_true")]
     pub enabled: bool,
-    /// Default theme for the canvas UI ("dark" or "light")
-    #[serde(default = "default_canvas_theme")]
-    pub theme: String,
-}
-
-fn default_canvas_theme() -> String {
-    "dark".into()
 }
 
 impl Default for CanvasConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            theme: default_canvas_theme(),
         }
     }
 }
