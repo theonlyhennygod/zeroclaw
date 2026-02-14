@@ -1,14 +1,16 @@
-use crate::config::Config;
+use crate::gateway::canvas::CanvasManager;
 use anyhow::Result;
 use chrono::Utc;
 use std::future::Future;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 
 const STATUS_FLUSH_SECONDS: u64 = 5;
 
 pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
+    let canvas_manager = Arc::new(CanvasManager::new());
     let initial_backoff = config.reliability.channel_initial_backoff_secs.max(1);
     let max_backoff = config
         .reliability
@@ -35,7 +37,8 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
             move || {
                 let cfg = gateway_cfg.clone();
                 let host = gateway_host.clone();
-                async move { crate::gateway::run_gateway(&host, port, cfg).await }
+                let canvas = canvas_manager.clone();
+                async move { crate::gateway::run_gateway(&host, port, cfg, Some(canvas)).await }
             },
         ));
     }
@@ -60,13 +63,15 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
 
     if config.heartbeat.enabled {
         let heartbeat_cfg = config.clone();
+        let canvas = canvas_manager.clone();
         handles.push(spawn_component_supervisor(
             "heartbeat",
             initial_backoff,
             max_backoff,
             move || {
                 let cfg = heartbeat_cfg.clone();
-                async move { run_heartbeat_worker(cfg).await }
+                let canvas = canvas.clone();
+                async move { run_heartbeat_worker(cfg, canvas).await }
             },
         ));
     }
@@ -167,7 +172,7 @@ where
     })
 }
 
-async fn run_heartbeat_worker(config: Config) -> Result<()> {
+async fn run_heartbeat_worker(config: Config, canvas: Arc<CanvasManager>) -> Result<()> {
     let observer: std::sync::Arc<dyn crate::observability::Observer> =
         std::sync::Arc::from(crate::observability::create_observer(&config.observability));
     let engine = crate::heartbeat::engine::HeartbeatEngine::new(
@@ -190,7 +195,8 @@ async fn run_heartbeat_worker(config: Config) -> Result<()> {
         for task in tasks {
             let prompt = format!("[Heartbeat Task] {task}");
             let temp = config.default_temperature;
-            if let Err(e) = crate::agent::run(config.clone(), Some(prompt), None, None, temp).await
+            if let Err(e) =
+                crate::agent::run(config.clone(), Some(prompt), None, None, temp, Some(canvas.clone())).await
             {
                 crate::health::mark_component_error("heartbeat", e.to_string());
                 tracing::warn!("Heartbeat task failed: {e}");

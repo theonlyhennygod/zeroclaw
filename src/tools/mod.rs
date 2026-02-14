@@ -7,6 +7,7 @@ pub mod memory_forget;
 pub mod memory_recall;
 pub mod memory_store;
 pub mod shell;
+pub mod canvas_set;
 pub mod traits;
 
 pub use browser::BrowserTool;
@@ -18,10 +19,12 @@ pub use memory_forget::MemoryForgetTool;
 pub use memory_recall::MemoryRecallTool;
 pub use memory_store::MemoryStoreTool;
 pub use shell::ShellTool;
+pub use canvas_set::CanvasSetTool;
 pub use traits::Tool;
 #[allow(unused_imports)]
 pub use traits::{ToolResult, ToolSpec};
 
+use crate::gateway::canvas::CanvasManager;
 use crate::memory::Memory;
 use crate::security::SecurityPolicy;
 use std::sync::Arc;
@@ -41,6 +44,7 @@ pub fn all_tools(
     memory: Arc<dyn Memory>,
     composio_key: Option<&str>,
     browser_config: &crate::config::BrowserConfig,
+    canvas_manager: Option<Arc<CanvasManager>>,
 ) -> Vec<Box<dyn Tool>> {
     let mut tools: Vec<Box<dyn Tool>> = vec![
         Box::new(ShellTool::new(security.clone())),
@@ -69,6 +73,10 @@ pub fn all_tools(
         if !key.is_empty() {
             tools.push(Box::new(ComposioTool::new(key)));
         }
+    }
+
+    if let Some(mgr) = canvas_manager {
+        tools.push(Box::new(CanvasSetTool::new(mgr)));
     }
 
     tools
@@ -104,7 +112,7 @@ mod tests {
             session_name: None,
         };
 
-        let tools = all_tools(&security, mem, None, &browser);
+        let tools = all_tools(&security, mem, None, &browser, None);
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(!names.contains(&"browser_open"));
     }

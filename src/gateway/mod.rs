@@ -7,17 +7,21 @@
 //! - Request timeouts (30s) to prevent slow-loris attacks
 //! - Header sanitization (handled by axum/hyper)
 
+pub mod canvas;
+mod render;
+
 use crate::channels::{Channel, WhatsAppChannel};
 use crate::config::Config;
+use crate::gateway::canvas::CanvasManager;
 use crate::memory::{self, Memory, MemoryCategory};
 use crate::providers::{self, Provider};
 use crate::security::pairing::{constant_time_eq, is_public_bind, PairingGuard};
 use anyhow::Result;
 use axum::{
     body::Bytes,
-    extract::{Query, State},
+    extract::{ws::{Message, WebSocket, WebSocketUpgrade}, Query, State},
     http::{header, HeaderMap, StatusCode},
-    response::{IntoResponse, Json},
+    response::{Html, IntoResponse, Json},
     routing::{get, post},
     Router,
 };
@@ -41,11 +45,17 @@ pub struct AppState {
     pub webhook_secret: Option<Arc<str>>,
     pub pairing: Arc<PairingGuard>,
     pub whatsapp: Option<Arc<WhatsAppChannel>>,
+    pub canvas: Arc<CanvasManager>,
 }
 
 /// Run the HTTP gateway using axum with proper HTTP/1.1 compliance.
 #[allow(clippy::too_many_lines)]
-pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
+pub async fn run_gateway(
+    host: &str,
+    port: u16,
+    config: Config,
+    canvas_manager: Option<Arc<CanvasManager>>,
+) -> Result<()> {
     // ── Security: refuse public bind without tunnel or explicit opt-in ──
     if is_public_bind(host) && config.tunnel.provider == "none" && !config.gateway.allow_public_bind
     {
@@ -150,27 +160,29 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
 
     crate::health::mark_component_ok("gateway");
 
-    // Build shared state
-    let state = AppState {
-        provider,
-        model,
-        temperature,
-        mem,
-        auto_save: config.memory.auto_save,
         webhook_secret,
         pairing,
         whatsapp: whatsapp_channel,
+        canvas: canvas_manager.unwrap_or_else(|| Arc::new(CanvasManager::new())),
     };
 
-    // Build router with middleware
-    // Note: Body limit layer prevents memory exhaustion from oversized requests
-    // Timeout is handled by tokio's TcpListener accept timeout and hyper's built-in timeouts
-    let app = Router::new()
+    // ── Build router ──
+    let mut router = Router::new()
         .route("/health", get(handle_health))
         .route("/pair", post(handle_pair))
         .route("/webhook", post(handle_webhook))
         .route("/whatsapp", get(handle_whatsapp_verify))
-        .route("/whatsapp", post(handle_whatsapp_message))
+        .route("/whatsapp", post(handle_whatsapp_message));
+
+    // Optional Canvas feature
+    if config.canvas.enabled {
+        router = router
+            .route("/canvas", get(handle_canvas_ui))
+            .route("/canvas/ws", get(handle_canvas_ws))
+            .route("/canvas/state", get(handle_canvas_state));
+        println!("🎨 Live Canvas:  ENABLED (http://{display_addr}/canvas)");
+    }
+    let app = router
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(MAX_BODY_SIZE));
 
@@ -413,6 +425,59 @@ async fn handle_whatsapp_message(State(state): State<AppState>, body: Bytes) -> 
 
     // Acknowledge the webhook
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"})))
+}
+
+// ── Canvas Handlers ──────────────────────────────────────────────────────────
+
+/// GET /canvas — serve the beautiful Live Canvas UI
+async fn handle_canvas_ui() -> impl IntoResponse {
+    Html(render::CANVAS_HTML)
+}
+
+/// GET /canvas/state — current canvas content
+async fn handle_canvas_state(State(state): State<AppState>) -> impl IntoResponse {
+    Json(state.canvas.get_state())
+}
+
+/// GET /canvas/ws — real-time updates via WebSocket
+async fn handle_canvas_ws(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    ws.on_upgrade(|socket| handle_ws_socket(socket, state.canvas))
+}
+
+async fn handle_ws_socket(socket: WebSocket, manager: Arc<CanvasManager>) {
+    let (mut sender, mut receiver) = socket.split();
+    let mut rx = manager.subscribe();
+
+    // Spawn a task to listen for state updates and broadcast to the socket
+    let mut send_task = tokio::spawn(async move {
+        while let Ok(new_state) = rx.recv().await {
+            let msg = match serde_json::to_string(&new_state) {
+                Ok(json) => Message::Text(json),
+                Err(_) => continue,
+            };
+            if sender.send(msg).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Keep the connection alive by waiting for client messages (heartbeats/close)
+    let mut recv_task = tokio::spawn(async move {
+        while let Some(Ok(msg)) = receiver.next().await {
+            if matches!(msg, Message::Close(_)) {
+                break;
+            }
+        }
+    });
+
+    // If either task ends, the connection is considered dead
+    tokio::select! {
+        _ = (&mut send_task) => recv_task.abort(),
+        _ = (&mut recv_task) => send_task.abort(),
+    };
 }
 
 #[cfg(test)]

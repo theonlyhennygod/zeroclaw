@@ -54,6 +54,9 @@ pub struct Config {
 
     #[serde(default)]
     pub identity: IdentityConfig,
+
+    #[serde(default)]
+    pub canvas: CanvasConfig,
 }
 
 // ── Identity (AIEOS / OpenClaw format) ──────────────────────────
@@ -155,6 +158,31 @@ pub struct SecretsConfig {
 impl Default for SecretsConfig {
     fn default() -> Self {
         Self { encrypt: true }
+    }
+}
+
+// ── Canvas (agent-driven visual workspace) ──────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CanvasConfig {
+    /// Enable Live Canvas feature (default: true)
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Default theme for the canvas UI ("dark" or "light")
+    #[serde(default = "default_canvas_theme")]
+    pub theme: String,
+}
+
+fn default_canvas_theme() -> String {
+    "dark".into()
+}
+
+impl Default for CanvasConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            theme: default_canvas_theme(),
+        }
     }
 }
 
@@ -621,6 +649,7 @@ impl Default for Config {
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             identity: IdentityConfig::default(),
+            canvas: CanvasConfig::default(),
         }
     }
 }

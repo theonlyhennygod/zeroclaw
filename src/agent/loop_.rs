@@ -35,6 +35,7 @@ pub async fn run(
     provider_override: Option<String>,
     model_override: Option<String>,
     temperature: f64,
+    canvas_manager: Option<Arc<crate::gateway::canvas::CanvasManager>>,
 ) -> Result<()> {
     // ── Wire up agnostic subsystems ──────────────────────────────
     let observer: Arc<dyn Observer> =
@@ -59,7 +60,13 @@ pub async fn run(
     } else {
         None
     };
-    let _tools = tools::all_tools(&security, mem.clone(), composio_key, &config.browser);
+    let _tools = tools::all_tools(
+        &security,
+        mem.clone(),
+        composio_key,
+        &config.browser,
+        canvas_manager.clone(),
+    );
 
     // ── Resolve provider ─────────────────────────────────────────
     let provider_name = provider_override
@@ -109,6 +116,10 @@ pub async fn run(
         (
             "memory_forget",
             "Delete a memory entry. Use when: memory is incorrect/stale or explicitly requested for removal. Don't use when: impact is uncertain.",
+        ),
+        (
+            "canvas_set",
+            "Update the Live Canvas UI. Use HTML for the structure and optional CSS for styling. Use when: visualizing data, showing UI components, or rendering rich content for the user. Set 'append' to true to add to existing content.",
         ),
     ];
     if config.browser.enabled {
