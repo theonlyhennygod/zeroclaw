@@ -58,10 +58,15 @@ fn is_valid_imessage_target(target: &str) -> bool {
     }
 
     // Phone number: +1234567890 or +1 234-567-8900
-    if target.starts_with('+') {
-        let digits_only: String = target.chars().filter(char::is_ascii_digit).collect();
+    // First validate all characters are allowed phone formatting chars
+    if target.starts_with('+')
+        && target.len() >= 2
+        && target[1..].chars().all(|c| c.is_ascii_digit() || " ()-./".contains(c))
+        && target[1..].chars().any(|c| c.is_ascii_digit())
+    {
+        let digit_count = target.chars().filter(|c| c.is_ascii_digit()).count();
         // Must have at least 7 digits (shortest valid phone numbers)
-        return digits_only.len() >= 7 && digits_only.len() <= 15;
+        return digit_count >= 7 && digit_count <= 15;
     }
 
     // Email: simple validation (contains @ with chars on both sides)
@@ -496,6 +501,19 @@ mod tests {
     #[test]
     fn invalid_target_email_no_dot_in_domain() {
         assert!(!is_valid_imessage_target("user@localhost"));
+    }
+
+    #[test]
+    fn valid_phone_number_formatted() {
+        assert!(is_valid_imessage_target("+1 (234) 567-8901"));
+        assert!(is_valid_imessage_target("+44-7771-234567"));
+    }
+
+    #[test]
+    fn invalid_target_letters_in_phone() {
+        // Non-phone characters must be rejected even with valid digit count
+        assert!(!is_valid_imessage_target("+1234evil567890"));
+        assert!(!is_valid_imessage_target("evil+1234567890"));
     }
 
     #[test]
