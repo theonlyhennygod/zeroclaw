@@ -47,12 +47,13 @@ impl Tunnel for CustomTunnel {
             .replace("{port}", &local_port.to_string())
             .replace("{host}", local_host);
 
-        let parts: Vec<&str> = cmd.split_whitespace().collect();
+        let parts = shlex::split(&cmd)
+            .ok_or_else(|| anyhow::anyhow!("Invalid shell syntax in start_command: {cmd}"))?;
         if parts.is_empty() {
             bail!("Custom tunnel start_command is empty");
         }
 
-        let mut child = Command::new(parts[0])
+        let mut child = Command::new(&parts[0])
             .args(&parts[1..])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -141,5 +142,80 @@ impl Tunnel for CustomTunnel {
             .try_lock()
             .ok()
             .and_then(|g| g.as_ref().map(|tp| tp.public_url.clone()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tunnel(cmd: &str) -> CustomTunnel {
+        CustomTunnel::new(cmd.to_string(), None, None)
+    }
+
+    #[tokio::test]
+    async fn parse_simple_command() {
+        let t = tunnel("echo hello");
+        let result = t.start("127.0.0.1", 8080).await;
+        assert!(result.is_ok(), "simple command should succeed: {result:?}");
+    }
+
+    #[tokio::test]
+    async fn parse_quoted_arguments() {
+        let t = tunnel("echo 'hello world'");
+        let result = t.start("127.0.0.1", 8080).await;
+        assert!(
+            result.is_ok(),
+            "single-quoted arg should succeed: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn parse_double_quoted_arguments() {
+        let t = tunnel("echo \"hello world\"");
+        let result = t.start("127.0.0.1", 8080).await;
+        assert!(
+            result.is_ok(),
+            "double-quoted arg should succeed: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn parse_empty_command_fails() {
+        let t = tunnel("");
+        let result = t.start("127.0.0.1", 8080).await;
+        assert!(result.is_err(), "empty command should fail");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("empty"), "error should mention 'empty': {err}");
+    }
+
+    #[tokio::test]
+    async fn parse_invalid_quotes_fails() {
+        let t = tunnel("echo 'unterminated");
+        let result = t.start("127.0.0.1", 8080).await;
+        assert!(result.is_err(), "unterminated quote should fail");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Invalid shell syntax"),
+            "error should mention invalid syntax: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_path_with_spaces() {
+        let parts = shlex::split("'/path/to/my program' --flag value").unwrap();
+        assert_eq!(parts[0], "/path/to/my program");
+        assert_eq!(parts[1], "--flag");
+        assert_eq!(parts[2], "value");
+    }
+
+    #[tokio::test]
+    async fn placeholder_substitution() {
+        let t = tunnel("echo {port} {host}");
+        let result = t.start("127.0.0.1", 9090).await;
+        assert!(
+            result.is_ok(),
+            "placeholder substitution should work: {result:?}"
+        );
     }
 }

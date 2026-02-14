@@ -155,7 +155,7 @@ where
                     tracing::warn!("Daemon component '{name}' exited unexpectedly");
                 }
                 Err(e) => {
-                    crate::health::mark_component_error(name, e.to_string());
+                    crate::health::mark_component_error(name, &e.to_string());
                     tracing::error!("Daemon component '{name}' failed: {e}");
                 }
             }
@@ -192,7 +192,7 @@ async fn run_heartbeat_worker(config: Config) -> Result<()> {
             let temp = config.default_temperature;
             if let Err(e) = crate::agent::run(config.clone(), Some(prompt), None, None, temp).await
             {
-                crate::health::mark_component_error("heartbeat", e.to_string());
+                crate::health::mark_component_error("heartbeat", &e.to_string());
                 tracing::warn!("Heartbeat task failed: {e}");
             } else {
                 crate::health::mark_component_ok("heartbeat");

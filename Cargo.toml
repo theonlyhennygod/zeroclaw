@@ -66,6 +66,9 @@ tower = { version = "0.5", default-features = false }
 tower-http = { version = "0.6", default-features = false, features = ["limit", "timeout"] }
 http-body-util = "0.1"
 
+# Shell lexing for safe command parsing
+shlex = "1.3"
+
 [profile.release]
 opt-level = "z"      # Optimize for size
 lto = true          # Link-time optimization

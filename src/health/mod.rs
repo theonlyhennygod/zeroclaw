@@ -67,7 +67,7 @@ pub fn mark_component_ok(component: &str) {
     });
 }
 
-pub fn mark_component_error(component: &str, error: impl ToString) {
+pub fn mark_component_error(component: &str, error: &(impl ToString + ?Sized)) {
     let err = error.to_string();
     upsert_component(component, move |entry| {
         entry.status = "error".into();
