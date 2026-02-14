@@ -973,40 +973,37 @@ fn parse_anthropic_models_payload(payload: &serde_json::Value) -> Vec<String> {
 }
 
 fn fetch_anthropic_models_live(credential: &str) -> Option<Vec<String>> {
-    // reqwest::blocking creates its own runtime and panics if dropped inside an async runtime.
-    // The onboarding wizard is launched from an async main, so safely skip live fetch there.
-    if tokio::runtime::Handle::try_current().is_ok() {
-        return None;
-    }
+    let credential = credential.to_string();
+    run_in_blocking_thread(move || {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(4))
+            .connect_timeout(std::time::Duration::from_secs(3))
+            .build()
+            .ok()?;
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(4))
-        .connect_timeout(std::time::Duration::from_secs(3))
-        .build()
-        .ok()?;
+        let mut req = client
+            .get("https://api.anthropic.com/v1/models")
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json");
 
-    let mut req = client
-        .get("https://api.anthropic.com/v1/models")
-        .header("anthropic-version", "2023-06-01")
-        .header("content-type", "application/json");
+        if credential.starts_with(ANTHROPIC_SETUP_TOKEN_PREFIX) {
+            req = req.header("Authorization", format!("Bearer {credential}"));
+        } else {
+            req = req.header("x-api-key", &credential);
+        }
 
-    if credential.starts_with(ANTHROPIC_SETUP_TOKEN_PREFIX) {
-        req = req.header("Authorization", format!("Bearer {credential}"));
-    } else {
-        req = req.header("x-api-key", credential);
-    }
-
-    let resp = req.send().ok()?;
-    if !resp.status().is_success() {
-        return None;
-    }
-    let payload: serde_json::Value = resp.json().ok()?;
-    let ids = parse_anthropic_models_payload(&payload);
-    if ids.is_empty() {
-        None
-    } else {
-        Some(ids)
-    }
+        let resp = req.send().ok()?;
+        if !resp.status().is_success() {
+            return None;
+        }
+        let payload: serde_json::Value = resp.json().ok()?;
+        let ids = parse_anthropic_models_payload(&payload);
+        if ids.is_empty() {
+            None
+        } else {
+            Some(ids)
+        }
+    })
 }
 
 fn anthropic_models_for_onboarding(credential: Option<&str>) -> Vec<(String, String)> {

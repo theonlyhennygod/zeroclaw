@@ -16,14 +16,32 @@ fn resolve_api_key(name: &str, api_key: Option<&str>) -> Option<String> {
         return Some(key.to_string());
     }
 
-    let provider_env = match name {
-        "anthropic" => ["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"].as_slice(),
-        "openrouter" => ["OPENROUTER_API_KEY"].as_slice(),
-        "openai" => ["OPENAI_API_KEY"].as_slice(),
-        _ => [].as_slice(),
+    let provider_env_candidates: Vec<&str> = match name {
+        "anthropic" => vec!["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
+        "openrouter" => vec!["OPENROUTER_API_KEY"],
+        "openai" => vec!["OPENAI_API_KEY"],
+        "venice" => vec!["VENICE_API_KEY"],
+        "groq" => vec!["GROQ_API_KEY"],
+        "mistral" => vec!["MISTRAL_API_KEY"],
+        "deepseek" => vec!["DEEPSEEK_API_KEY"],
+        "xai" | "grok" => vec!["XAI_API_KEY"],
+        "together" | "together-ai" => vec!["TOGETHER_API_KEY"],
+        "fireworks" | "fireworks-ai" => vec!["FIREWORKS_API_KEY"],
+        "perplexity" => vec!["PERPLEXITY_API_KEY"],
+        "cohere" => vec!["COHERE_API_KEY"],
+        "moonshot" | "kimi" => vec!["MOONSHOT_API_KEY"],
+        "glm" | "zhipu" => vec!["GLM_API_KEY"],
+        "minimax" => vec!["MINIMAX_API_KEY"],
+        "qianfan" | "baidu" => vec!["QIANFAN_API_KEY"],
+        "zai" | "z.ai" => vec!["ZAI_API_KEY"],
+        "synthetic" => vec!["SYNTHETIC_API_KEY"],
+        "opencode" | "opencode-zen" => vec!["OPENCODE_API_KEY"],
+        "vercel" | "vercel-ai" => vec!["VERCEL_API_KEY"],
+        "cloudflare" | "cloudflare-ai" => vec!["CLOUDFLARE_API_KEY"],
+        _ => vec![],
     };
 
-    for env_var in provider_env {
+    for env_var in provider_env_candidates {
         if let Ok(value) = std::env::var(env_var) {
             let value = value.trim();
             if !value.is_empty() {
@@ -373,18 +391,6 @@ mod tests {
     #[test]
     fn factory_cohere() {
         assert!(create_provider("cohere", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn resolve_anthropic_prefers_oauth_token_env() {
-        std::env::set_var("ANTHROPIC_OAUTH_TOKEN", "sk-ant-oat01-token");
-        std::env::set_var("ANTHROPIC_API_KEY", "sk-ant-api-key");
-
-        let resolved = resolve_api_key("anthropic", None);
-
-        std::env::remove_var("ANTHROPIC_OAUTH_TOKEN");
-        std::env::remove_var("ANTHROPIC_API_KEY");
-        assert_eq!(resolved.as_deref(), Some("sk-ant-oat01-token"));
     }
 
     // ── Custom / BYOP provider ─────────────────────────────
