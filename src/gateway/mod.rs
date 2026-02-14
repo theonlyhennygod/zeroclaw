@@ -438,12 +438,12 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         )
         .route("/webhook", post(webhook_handler))
         .fallback(fallback_handler)
-        .layer(middleware::from_fn(log_request))
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
             Duration::from_secs(60),
         ))
         .layer(RequestBodyLimitLayer::new(65_536))
+        .layer(middleware::from_fn(log_request))
         .with_state(state);
 
     axum::serve(
