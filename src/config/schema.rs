@@ -682,7 +682,9 @@ impl Config {
             ($expr:expr, $label:expr) => {
                 match $expr {
                     Ok(n) => migrated += n,
-                    Err(e) => tracing::warn!(field = $label, "Failed to migrate legacy secret: {e}"),
+                    Err(e) => {
+                        tracing::warn!(field = $label, "Failed to migrate legacy secret: {e}")
+                    }
                 }
             };
         }
@@ -691,41 +693,74 @@ impl Config {
         try_migrate!(migrate_opt_field(&store, &mut self.api_key), "api_key");
 
         // Composio API key
-        try_migrate!(migrate_opt_field(&store, &mut self.composio.api_key), "composio.api_key");
+        try_migrate!(
+            migrate_opt_field(&store, &mut self.composio.api_key),
+            "composio.api_key"
+        );
 
         // Gateway paired tokens
         for (i, token) in self.gateway.paired_tokens.iter_mut().enumerate() {
-            try_migrate!(migrate_string_field(&store, token), &format!("gateway.paired_tokens[{i}]"));
+            try_migrate!(
+                migrate_string_field(&store, token),
+                &format!("gateway.paired_tokens[{i}]")
+            );
         }
 
         // Channel tokens
         if let Some(ref mut tg) = self.channels_config.telegram {
-            try_migrate!(migrate_string_field(&store, &mut tg.bot_token), "telegram.bot_token");
+            try_migrate!(
+                migrate_string_field(&store, &mut tg.bot_token),
+                "telegram.bot_token"
+            );
         }
         if let Some(ref mut dc) = self.channels_config.discord {
-            try_migrate!(migrate_string_field(&store, &mut dc.bot_token), "discord.bot_token");
+            try_migrate!(
+                migrate_string_field(&store, &mut dc.bot_token),
+                "discord.bot_token"
+            );
         }
         if let Some(ref mut sl) = self.channels_config.slack {
-            try_migrate!(migrate_string_field(&store, &mut sl.bot_token), "slack.bot_token");
-            try_migrate!(migrate_opt_field(&store, &mut sl.app_token), "slack.app_token");
+            try_migrate!(
+                migrate_string_field(&store, &mut sl.bot_token),
+                "slack.bot_token"
+            );
+            try_migrate!(
+                migrate_opt_field(&store, &mut sl.app_token),
+                "slack.app_token"
+            );
         }
         if let Some(ref mut wh) = self.channels_config.webhook {
             try_migrate!(migrate_opt_field(&store, &mut wh.secret), "webhook.secret");
         }
         if let Some(ref mut mx) = self.channels_config.matrix {
-            try_migrate!(migrate_string_field(&store, &mut mx.access_token), "matrix.access_token");
+            try_migrate!(
+                migrate_string_field(&store, &mut mx.access_token),
+                "matrix.access_token"
+            );
         }
         if let Some(ref mut wa) = self.channels_config.whatsapp {
-            try_migrate!(migrate_string_field(&store, &mut wa.access_token), "whatsapp.access_token");
-            try_migrate!(migrate_string_field(&store, &mut wa.verify_token), "whatsapp.verify_token");
+            try_migrate!(
+                migrate_string_field(&store, &mut wa.access_token),
+                "whatsapp.access_token"
+            );
+            try_migrate!(
+                migrate_string_field(&store, &mut wa.verify_token),
+                "whatsapp.verify_token"
+            );
         }
 
         // Tunnel tokens
         if let Some(ref mut cf) = self.tunnel.cloudflare {
-            try_migrate!(migrate_string_field(&store, &mut cf.token), "cloudflare.token");
+            try_migrate!(
+                migrate_string_field(&store, &mut cf.token),
+                "cloudflare.token"
+            );
         }
         if let Some(ref mut ng) = self.tunnel.ngrok {
-            try_migrate!(migrate_string_field(&store, &mut ng.auth_token), "ngrok.auth_token");
+            try_migrate!(
+                migrate_string_field(&store, &mut ng.auth_token),
+                "ngrok.auth_token"
+            );
         }
 
         if migrated > 0 {

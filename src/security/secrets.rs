@@ -205,7 +205,10 @@ impl SecretStore {
                 let _ = std::process::Command::new("icacls")
                     .arg(&self.key_path)
                     .args(["/inheritance:r", "/grant:r"])
-                    .arg(format!("{}:F", std::env::var("USERNAME").unwrap_or_default()))
+                    .arg(format!(
+                        "{}:F",
+                        std::env::var("USERNAME").unwrap_or_default()
+                    ))
                     .output();
             }
 
@@ -248,6 +251,7 @@ fn hex_encode(data: &[u8]) -> String {
 }
 
 /// Hex-decode a hex string to bytes.
+#[allow(clippy::manual_is_multiple_of)] // is_multiple_of is unstable before Rust 1.84
 fn hex_decode(hex: &str) -> Result<Vec<u8>> {
     if hex.len() % 2 != 0 {
         anyhow::bail!("Hex string has odd length");
