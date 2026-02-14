@@ -1,3 +1,17 @@
+//! Axum-based HTTP gateway with security middleware.
+//!
+//! Provides the external API surface for ZeroClaw:
+//! - `GET /health` — runtime health check
+//! - `POST /pair` — device pairing via one-time code
+//! - `GET /whatsapp` — Meta webhook verification
+//! - `POST /whatsapp` — inbound WhatsApp messages
+//! - `POST /webhook` — generic chat webhook
+//!
+//! Defence layers (applied via tower middleware):
+//! - **Body limit** — 64 KB max request body (`RequestBodyLimitLayer`)
+//! - **Timeout** — 60 s per request (`TimeoutLayer`)
+//! - **Request logging** — peer address + method + path
+
 use crate::channels::{Channel, WhatsAppChannel};
 use crate::config::Config;
 use crate::memory::{self, Memory, MemoryCategory};
@@ -165,8 +179,8 @@ async fn whatsapp_message_handler(State(state): State<AppState>, body: String) -
         tracing::info!(
             "WhatsApp message from {}: {}",
             msg.sender,
-            if msg.content.len() > 50 {
-                format!("{}...", &msg.content[..50])
+            if msg.content.chars().count() > 50 {
+                format!("{}...", msg.content.chars().take(50).collect::<String>())
             } else {
                 msg.content.clone()
             }
@@ -234,9 +248,7 @@ async fn webhook_handler(
         match header_val {
             Some(val) if constant_time_eq(val, secret.as_ref()) => {}
             _ => {
-                tracing::warn!(
-                    "Webhook: rejected request — invalid or missing X-Webhook-Secret"
-                );
+                tracing::warn!("Webhook: rejected request — invalid or missing X-Webhook-Secret");
                 return json_response(
                     StatusCode::UNAUTHORIZED,
                     serde_json::json!({"error": "Unauthorized — invalid or missing X-Webhook-Secret header"}),
@@ -246,19 +258,21 @@ async fn webhook_handler(
     }
 
     // ── Parse and process ──
-    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&body) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            serde_json::json!({"error": "Invalid JSON. Expected: {\"message\": \"...\"}"}),
-        );
-    };
+    #[derive(Deserialize)]
+    struct WebhookPayload {
+        message: String,
+    }
 
-    let Some(message) = parsed.get("message").and_then(|v| v.as_str()) else {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            serde_json::json!({"error": "Missing 'message' field in JSON"}),
-        );
+    let payload: WebhookPayload = match serde_json::from_str(&body) {
+        Ok(p) => p,
+        Err(e) => {
+            return json_response(
+                StatusCode::BAD_REQUEST,
+                serde_json::json!({"error": format!("Invalid JSON payload: {e}")}),
+            );
+        }
     };
+    let message = &payload.message;
 
     if state.auto_save {
         let _ = state
@@ -288,7 +302,7 @@ async fn fallback_handler() -> Response {
         StatusCode::NOT_FOUND,
         serde_json::json!({
             "error": "Not found",
-            "routes": ["GET /health", "POST /pair", "POST /webhook"]
+            "routes": ["GET /health", "POST /pair", "POST /webhook", "GET /whatsapp", "POST /whatsapp"]
         }),
     )
 }
@@ -425,7 +439,10 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/webhook", post(webhook_handler))
         .fallback(fallback_handler)
         .layer(middleware::from_fn(log_request))
-        .layer(TimeoutLayer::with_status_code(StatusCode::REQUEST_TIMEOUT, Duration::from_secs(60)))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(60),
+        ))
         .layer(RequestBodyLimitLayer::new(65_536))
         .with_state(state);
 
@@ -531,10 +548,7 @@ mod tests {
         ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
             Ok(vec![])
         }
-        async fn get(
-            &self,
-            _key: &str,
-        ) -> anyhow::Result<Option<crate::memory::MemoryEntry>> {
+        async fn get(&self, _key: &str) -> anyhow::Result<Option<crate::memory::MemoryEntry>> {
             Ok(None)
         }
         async fn list(
