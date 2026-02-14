@@ -32,6 +32,12 @@ use tokio::net::TcpListener;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 
+/// Maximum request body size (64 KB) — prevents memory exhaustion from oversized payloads.
+const MAX_BODY_SIZE: usize = 65_536;
+
+/// Per-request timeout — prevents slow-loris and hung-connection attacks.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+
 // ── Shared state ────────────────────────────────────────────────────
 
 #[derive(Clone)]
@@ -440,9 +446,9 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .fallback(fallback_handler)
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
-            Duration::from_secs(60),
+            REQUEST_TIMEOUT,
         ))
-        .layer(RequestBodyLimitLayer::new(65_536))
+        .layer(RequestBodyLimitLayer::new(MAX_BODY_SIZE))
         .layer(middleware::from_fn(log_request))
         .with_state(state);
 
@@ -591,7 +597,7 @@ mod tests {
             )
             .route("/webhook", post(webhook_handler))
             .fallback(fallback_handler)
-            .layer(RequestBodyLimitLayer::new(65_536))
+            .layer(RequestBodyLimitLayer::new(MAX_BODY_SIZE))
             .with_state(state)
     }
 
