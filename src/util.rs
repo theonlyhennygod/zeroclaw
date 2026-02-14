@@ -1,4 +1,4 @@
-/// Truncate a string to at most `max_chars` characters, appending "..." if truncated.
+/// Truncate a string to `max_chars` characters, appending "..." if truncated.
 ///
 /// Unlike byte-index slicing (`&s[..n]`), this is safe for multi-byte UTF-8
 /// strings and will never panic on non-ASCII input.

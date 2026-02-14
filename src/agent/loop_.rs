@@ -190,11 +190,7 @@ pub async fn run(
             println!("\n{response}\n");
 
             if config.memory.auto_save {
-                let summary = if response.len() > 100 {
-                    format!("{}...", &response[..100])
-                } else {
-                    response.clone()
-                };
+                let summary = truncate_with_ellipsis(&response, 100);
                 let _ = mem
                     .store("assistant_resp", &summary, MemoryCategory::Daily)
                     .await;
