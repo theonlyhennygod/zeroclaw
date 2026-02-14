@@ -41,6 +41,7 @@ pub struct AppState {
     pub webhook_secret: Option<Arc<str>>,
     pub pairing: Arc<PairingGuard>,
     pub whatsapp: Option<Arc<WhatsAppChannel>>,
+    pub whatsapp_app_secret: Option<Arc<str>>,
 }
 
 /// Run the HTTP gateway using axum with proper HTTP/1.1 compliance.
@@ -86,6 +87,12 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .map(Arc::from);
 
     // WhatsApp channel (if configured)
+    let whatsapp_app_secret: Option<Arc<str>> = config
+        .channels_config
+        .whatsapp
+        .as_ref()
+        .and_then(|wa| wa.app_secret.as_deref())
+        .map(Arc::from);
     let whatsapp_channel: Option<Arc<WhatsAppChannel>> =
         config.channels_config.whatsapp.as_ref().map(|wa| {
             Arc::new(WhatsAppChannel::new(
@@ -160,6 +167,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         webhook_secret,
         pairing,
         whatsapp: whatsapp_channel,
+        whatsapp_app_secret,
     };
 
     // Build router with middleware
@@ -343,14 +351,62 @@ async fn handle_whatsapp_verify(
     (StatusCode::FORBIDDEN, "Forbidden".to_string())
 }
 
+/// Verify the `X-Hub-Signature-256` header from Meta's WhatsApp webhook.
+fn verify_whatsapp_signature(app_secret: &str, body: &[u8], signature_header: &str) -> bool {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    let Some(hex_sig) = signature_header.strip_prefix("sha256=") else {
+        return false;
+    };
+    let Ok(expected) = hex_decode_bytes(hex_sig) else {
+        return false;
+    };
+    let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(app_secret.as_bytes()) else {
+        return false;
+    };
+    mac.update(body);
+    mac.verify_slice(&expected).is_ok()
+}
+
+/// Simple hex decode for signature verification.
+fn hex_decode_bytes(hex: &str) -> Result<Vec<u8>, ()> {
+    if hex.len() % 2 != 0 {
+        return Err(());
+    }
+    (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).map_err(|_| ()))
+        .collect()
+}
+
 /// POST /whatsapp — incoming message webhook
-async fn handle_whatsapp_message(State(state): State<AppState>, body: Bytes) -> impl IntoResponse {
+async fn handle_whatsapp_message(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> impl IntoResponse {
     let Some(ref wa) = state.whatsapp else {
         return (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "WhatsApp not configured"})),
         );
     };
+
+    // Verify webhook signature if app_secret is configured
+    if let Some(ref app_secret) = state.whatsapp_app_secret {
+        let sig = headers
+            .get("X-Hub-Signature-256")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        if !verify_whatsapp_signature(app_secret, &body, sig) {
+            tracing::warn!("WhatsApp webhook signature verification failed");
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "Invalid signature"})),
+            );
+        }
+    }
 
     // Parse JSON body
     let Ok(payload) = serde_json::from_slice::<serde_json::Value>(&body) else {
@@ -455,5 +511,55 @@ mod tests {
     fn app_state_is_clone() {
         fn assert_clone<T: Clone>() {}
         assert_clone::<AppState>();
+    }
+
+    #[test]
+    fn whatsapp_signature_valid() {
+        use hmac::{Hmac, Mac};
+        use sha2::Sha256;
+
+        let secret = "test_secret";
+        let body = b"test body content";
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(body);
+        let result = mac.finalize();
+        let hex = result
+            .into_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        let header = format!("sha256={hex}");
+
+        assert!(verify_whatsapp_signature(secret, body, &header));
+    }
+
+    #[test]
+    fn whatsapp_signature_invalid() {
+        assert!(!verify_whatsapp_signature(
+            "secret",
+            b"body",
+            "sha256=0000000000000000000000000000000000000000000000000000000000000000"
+        ));
+    }
+
+    #[test]
+    fn whatsapp_signature_missing_prefix() {
+        assert!(!verify_whatsapp_signature("secret", b"body", "bad_header"));
+    }
+
+    #[test]
+    fn whatsapp_signature_empty() {
+        assert!(!verify_whatsapp_signature("secret", b"body", ""));
+    }
+
+    #[test]
+    fn hex_decode_valid() {
+        assert_eq!(hex_decode_bytes("48656c6c6f"), Ok(b"Hello".to_vec()));
+    }
+
+    #[test]
+    fn hex_decode_odd_length() {
+        assert!(hex_decode_bytes("abc").is_err());
     }
 }

@@ -588,6 +588,9 @@ pub struct WhatsAppConfig {
     pub phone_number_id: String,
     /// Webhook verify token (you define this, Meta sends it back for verification)
     pub verify_token: String,
+    /// App secret from Meta Business Suite (used to verify webhook signatures)
+    #[serde(default)]
+    pub app_secret: Option<String>,
     /// Allowed phone numbers (E.164 format: +1234567890) or "*" for all
     #[serde(default)]
     pub allowed_numbers: Vec<String>,
@@ -1135,6 +1138,7 @@ channel_id = "C123"
             access_token: "EAABx...".into(),
             phone_number_id: "123456789".into(),
             verify_token: "my-verify-token".into(),
+            app_secret: None,
             allowed_numbers: vec!["+1234567890".into(), "+9876543210".into()],
         };
         let json = serde_json::to_string(&wc).unwrap();
@@ -1151,6 +1155,7 @@ channel_id = "C123"
             access_token: "tok".into(),
             phone_number_id: "12345".into(),
             verify_token: "verify".into(),
+            app_secret: None,
             allowed_numbers: vec!["+1".into()],
         };
         let toml_str = toml::to_string(&wc).unwrap();
@@ -1172,6 +1177,7 @@ channel_id = "C123"
             access_token: "tok".into(),
             phone_number_id: "123".into(),
             verify_token: "ver".into(),
+            app_secret: None,
             allowed_numbers: vec!["*".into()],
         };
         let toml_str = toml::to_string(&wc).unwrap();
@@ -1193,6 +1199,7 @@ channel_id = "C123"
                 access_token: "tok".into(),
                 phone_number_id: "123".into(),
                 verify_token: "ver".into(),
+                app_secret: None,
                 allowed_numbers: vec!["+1".into()],
             }),
         };

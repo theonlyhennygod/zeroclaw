@@ -1599,6 +1599,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     access_token: access_token.trim().to_string(),
                     phone_number_id: phone_number_id.trim().to_string(),
                     verify_token: verify_token.trim().to_string(),
+                    app_secret: None,
                     allowed_numbers,
                 });
             }
