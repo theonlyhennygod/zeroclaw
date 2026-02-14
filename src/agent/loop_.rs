@@ -3,6 +3,7 @@ use crate::memory::{self, Memory, MemoryCategory};
 use crate::observability::{self, Observer, ObserverEvent};
 use crate::providers::{self, Provider};
 use crate::runtime;
+use crate::util::truncate_with_ellipsis;
 use crate::security::SecurityPolicy;
 use crate::tools;
 use anyhow::Result;
@@ -150,11 +151,7 @@ pub async fn run(
 
         // Auto-save assistant response to daily log
         if config.memory.auto_save {
-            let summary = if response.len() > 100 {
-                format!("{}...", &response[..100])
-            } else {
-                response.clone()
-            };
+            let summary = truncate_with_ellipsis(&response, 100);
             let _ = mem
                 .store("assistant_resp", &summary, MemoryCategory::Daily)
                 .await;

@@ -461,6 +461,7 @@ impl Tool for BrowserTool {
         })
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
         // Security checks
         if !self.security.can_act() {
