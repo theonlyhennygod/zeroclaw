@@ -1,6 +1,7 @@
 pub mod cli;
 pub mod discord;
 pub mod imessage;
+pub mod irc;
 pub mod matrix;
 pub mod slack;
 pub mod telegram;
@@ -10,6 +11,7 @@ pub mod whatsapp;
 pub use cli::CliChannel;
 pub use discord::DiscordChannel;
 pub use imessage::IMessageChannel;
+pub use irc::IrcChannel;
 pub use matrix::MatrixChannel;
 pub use slack::SlackChannel;
 pub use telegram::TelegramChannel;
@@ -273,6 +275,7 @@ pub fn handle_command(command: super::ChannelCommands, config: &Config) -> Resul
                 ("iMessage", config.channels_config.imessage.is_some()),
                 ("Matrix", config.channels_config.matrix.is_some()),
                 ("WhatsApp", config.channels_config.whatsapp.is_some()),
+                ("IRC", config.channels_config.irc.is_some()),
             ] {
                 println!("  {} {name}", if configured { "✅" } else { "❌" });
             }
@@ -313,6 +316,7 @@ fn classify_health_result(
 }
 
 /// Run health checks for configured channels.
+#[allow(clippy::too_many_lines)]
 pub async fn doctor_channels(config: Config) -> Result<()> {
     let mut channels: Vec<(&'static str, Arc<dyn Channel>)> = Vec::new();
 
@@ -375,6 +379,24 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
                 wa.phone_number_id.clone(),
                 wa.verify_token.clone(),
                 wa.allowed_numbers.clone(),
+            )),
+        ));
+    }
+
+    if let Some(ref irc) = config.channels_config.irc {
+        channels.push((
+            "IRC",
+            Arc::new(IrcChannel::new(
+                irc.server.clone(),
+                irc.port,
+                irc.nickname.clone(),
+                irc.username.clone(),
+                irc.channels.clone(),
+                irc.allowed_users.clone(),
+                irc.server_password.clone(),
+                irc.nickserv_password.clone(),
+                irc.sasl_password.clone(),
+                irc.verify_tls.unwrap_or(true),
             )),
         ));
     }
@@ -536,6 +558,21 @@ pub async fn start_channels(config: Config) -> Result<()> {
             wa.phone_number_id.clone(),
             wa.verify_token.clone(),
             wa.allowed_numbers.clone(),
+        )));
+    }
+
+    if let Some(ref irc) = config.channels_config.irc {
+        channels.push(Arc::new(IrcChannel::new(
+            irc.server.clone(),
+            irc.port,
+            irc.nickname.clone(),
+            irc.username.clone(),
+            irc.channels.clone(),
+            irc.allowed_users.clone(),
+            irc.server_password.clone(),
+            irc.nickserv_password.clone(),
+            irc.sasl_password.clone(),
+            irc.verify_tls.unwrap_or(true),
         )));
     }
 

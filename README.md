@@ -113,7 +113,7 @@ Every subsystem is a **trait** — swap implementations with a config change, ze
 | Subsystem | Trait | Ships with | Extend |
 |-----------|-------|------------|--------|
 | **AI Models** | `Provider` | 22+ providers (OpenRouter, Anthropic, OpenAI, Ollama, Venice, Groq, Mistral, xAI, DeepSeek, Together, Fireworks, Perplexity, Cohere, Bedrock, etc.) | `custom:https://your-api.com` — any OpenAI-compatible API |
-| **Channels** | `Channel` | CLI, Telegram, Discord, Slack, iMessage, Matrix, WhatsApp, Webhook | Any messaging API |
+| **Channels** | `Channel` | CLI, Telegram, Discord, Slack, iMessage, Matrix, WhatsApp, IRC, Webhook | Any messaging API |
 | **Memory** | `Memory` | SQLite with hybrid search (FTS5 + vector cosine similarity), Markdown | Any persistence backend |
 | **Tools** | `Tool` | shell, file_read, file_write, memory_store, memory_recall, memory_forget, browser_open (Brave + allowlist), composio (optional) | Any capability |
 | **Observability** | `Observer` | Noop, Log, Multi | Prometheus, OTel |
@@ -172,13 +172,13 @@ ZeroClaw enforces security at **every layer** — not just the sandbox. It passe
 
 > **Run your own nmap:** `nmap -p 1-65535 <your-host>` — ZeroClaw binds to localhost only, so nothing is exposed unless you explicitly configure a tunnel.
 
-### Channel allowlists (Telegram / Discord / Slack)
+### Channel allowlists (Telegram / Discord / Slack / IRC)
 
 Inbound sender policy is now consistent:
 
 - Empty allowlist = **deny all inbound messages**
 - `"*"` = **allow all** (explicit opt-in)
-- Otherwise = exact-match allowlist
+- Otherwise = exact-match allowlist (case-insensitive for IRC)
 
 This keeps accidental exposure low by default.
 
@@ -187,6 +187,7 @@ Recommended low-friction setup (secure + fast):
 - **Telegram:** allowlist your own `@username` (without `@`) and/or your numeric Telegram user ID.
 - **Discord:** allowlist your own Discord user ID.
 - **Slack:** allowlist your own Slack member ID (usually starts with `U`).
+- **IRC:** allowlist IRC nicknames (case-insensitive matching).
 - Use `"*"` only for temporary open testing.
 
 If you're not sure which identity to use:
@@ -238,6 +239,34 @@ WhatsApp uses Meta's Cloud API with webhooks (push-based, not polling):
    - Subscribe to `messages` field
 
 6. **Test:** Send a message to your WhatsApp Business number — ZeroClaw will respond via the LLM.
+
+### IRC over TLS Setup
+
+IRC connects over TLS to any IRC server and joins configured channels:
+
+```toml
+[channels_config.irc]
+server = "irc.example.com"
+port = 6697                        # standard IRC over TLS
+nickname = "zeroclaw"
+channels = ["#your-channel"]
+allowed_users = ["yournick"]       # or ["*"] for all
+```
+
+Optional authentication (pick one or combine):
+
+```toml
+# Server password (for bouncers like ZNC)
+server_password = "hunter2"
+
+# NickServ IDENTIFY after connect
+nickserv_password = "mypassword"
+
+# SASL PLAIN authentication (IRCv3)
+sasl_password = "mypassword"
+```
+
+Start channels and send a message in the configured IRC channel or via DM to the bot's nickname.
 
 ## Configuration
 

@@ -2546,12 +2546,14 @@ dependencies = [
  "http-body-util",
  "reqwest",
  "rusqlite",
+ "rustls",
  "serde",
  "serde_json",
  "shellexpand",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-rustls",
  "tokio-test",
  "tokio-tungstenite",
  "toml",
@@ -2560,6 +2562,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "webpki-roots 1.0.6",
 ]
 
 [[package]]
