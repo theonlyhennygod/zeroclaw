@@ -1,10 +1,18 @@
+use crate::auth::anthropic_token::{detect_auth_kind, AnthropicAuthKind};
+use crate::auth::AuthService;
 use crate::providers::traits::Provider;
+use crate::providers::ProviderRuntimeOptions;
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 pub struct AnthropicProvider {
     api_key: Option<String>,
+    auth_kind: AnthropicAuthKind,
+    explicit_kind_override: Option<AnthropicAuthKind>,
+    auth_service: Option<AuthService>,
+    auth_profile_override: Option<String>,
     client: Client,
 }
 
@@ -38,6 +46,11 @@ impl AnthropicProvider {
     pub fn new(api_key: Option<&str>) -> Self {
         Self {
             api_key: api_key.map(ToString::to_string),
+            auth_kind: api_key
+                .map_or(AnthropicAuthKind::ApiKey, |token| detect_auth_kind(token, None)),
+            explicit_kind_override: None,
+            auth_service: None,
+            auth_profile_override: None,
             client: Client::builder()
                 .timeout(std::time::Duration::from_secs(120))
                 .connect_timeout(std::time::Duration::from_secs(10))
@@ -45,6 +58,96 @@ impl AnthropicProvider {
                 .unwrap_or_else(|_| Client::new()),
         }
     }
+
+    pub fn new_with_options(
+        api_key: Option<&str>,
+        options: &ProviderRuntimeOptions,
+    ) -> Self {
+        let explicit_kind_override = std::env::var("ANTHROPIC_AUTH_KIND")
+            .ok()
+            .as_deref()
+            .and_then(AnthropicAuthKind::from_metadata_value);
+
+        let mut resolved = api_key
+            .map(|value| (value.to_string(), None))
+            .or_else(|| std::env::var("ANTHROPIC_AUTH_TOKEN").ok().map(|v| (v, Some(AnthropicAuthKind::Authorization))))
+            .or_else(|| std::env::var("ANTHROPIC_OAUTH_TOKEN").ok().map(|v| (v, Some(AnthropicAuthKind::Authorization))))
+            .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok().map(|v| (v, Some(AnthropicAuthKind::ApiKey))));
+
+        let (token, kind_from_source) = match resolved.take() {
+            Some((token, kind)) if !token.trim().is_empty() => (Some(token), kind),
+            _ => (None, None),
+        };
+
+        let auth_kind = token
+            .as_deref()
+            .map_or(AnthropicAuthKind::ApiKey, |token| {
+                explicit_kind_override
+                    .or(kind_from_source)
+                    .unwrap_or_else(|| detect_auth_kind(token, None))
+            });
+
+        let state_dir = options
+            .zeroclaw_dir
+            .clone()
+            .unwrap_or_else(default_zeroclaw_dir);
+        let auth_service = Some(AuthService::new(&state_dir, options.secrets_encrypt));
+
+        Self {
+            api_key: token,
+            auth_kind,
+            explicit_kind_override,
+            auth_service,
+            auth_profile_override: options.auth_profile_override.clone(),
+            client: Client::builder()
+                .timeout(std::time::Duration::from_secs(120))
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
+        }
+    }
+
+    fn resolve_auth(&self) -> anyhow::Result<(String, AnthropicAuthKind)> {
+        if let Some(token) = self.api_key.clone() {
+            return Ok((token, self.auth_kind));
+        }
+
+        if let Some(auth_service) = &self.auth_service {
+            if let Some(profile) =
+                auth_service.get_profile("anthropic", self.auth_profile_override.as_deref())?
+            {
+                let token = match profile.kind {
+                    crate::auth::profiles::AuthProfileKind::Token => profile.token,
+                    crate::auth::profiles::AuthProfileKind::OAuth => {
+                        profile.token_set.map(|token_set| token_set.access_token)
+                    }
+                };
+
+                if let Some(token) = token {
+                    if !token.trim().is_empty() {
+                        let kind = profile
+                            .metadata
+                            .get("auth_kind")
+                            .and_then(|value| AnthropicAuthKind::from_metadata_value(value))
+                            .or(self.explicit_kind_override)
+                            .unwrap_or_else(|| detect_auth_kind(&token, None));
+                        return Ok((token, kind));
+                    }
+                }
+            }
+        }
+
+        anyhow::bail!(
+            "Anthropic auth not configured. Set ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN or run `zeroclaw auth paste-token --provider anthropic`."
+        )
+    }
+}
+
+fn default_zeroclaw_dir() -> PathBuf {
+    directories::UserDirs::new().map_or_else(
+        || PathBuf::from(".zeroclaw"),
+        |dirs| dirs.home_dir().join(".zeroclaw"),
+    )
 }
 
 #[async_trait]
@@ -56,9 +159,7 @@ impl Provider for AnthropicProvider {
         model: &str,
         temperature: f64,
     ) -> anyhow::Result<String> {
-        let api_key = self.api_key.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("Anthropic API key not set. Set ANTHROPIC_API_KEY or edit config.toml.")
-        })?;
+        let (token, auth_kind) = self.resolve_auth()?;
 
         let request = ChatRequest {
             model: model.to_string(),
@@ -71,15 +172,20 @@ impl Provider for AnthropicProvider {
             temperature,
         };
 
-        let response = self
+        let mut builder = self
             .client
             .post("https://api.anthropic.com/v1/messages")
-            .header("x-api-key", api_key)
             .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json")
-            .json(&request)
-            .send()
-            .await?;
+            .header("content-type", "application/json");
+
+        builder = match auth_kind {
+            AnthropicAuthKind::ApiKey => builder.header("x-api-key", token),
+            AnthropicAuthKind::Authorization => {
+                builder.header("Authorization", format!("Bearer {token}"))
+            }
+        };
+
+        let response = builder.json(&request).send().await?;
 
         if !response.status().is_success() {
             return Err(super::api_error("Anthropic", response).await);
@@ -128,10 +234,7 @@ mod tests {
             .await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(
-            err.contains("API key not set"),
-            "Expected key error, got: {err}"
-        );
+        assert!(err.contains("auth not configured"), "Expected auth error, got: {err}");
     }
 
     #[tokio::test]
@@ -218,5 +321,11 @@ mod tests {
             let json = serde_json::to_string(&req).unwrap();
             assert!(json.contains(&format!("{temp}")));
         }
+    }
+
+    #[test]
+    fn detects_auth_from_jwt_shape() {
+        let kind = detect_auth_kind("a.b.c", None);
+        assert_eq!(kind, AnthropicAuthKind::Authorization);
     }
 }

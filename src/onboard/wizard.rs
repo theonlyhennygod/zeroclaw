@@ -376,10 +376,26 @@ pub fn run_quick_setup(
     println!();
     println!("  {}", style("Next steps:").white().bold());
     if api_key.is_none() {
-        println!("    1. Set your API key:  export OPENROUTER_API_KEY=\"sk-...\"");
-        println!("    2. Or edit:           ~/.zeroclaw/config.toml");
-        println!("    3. Chat:              zeroclaw agent -m \"Hello!\"");
-        println!("    4. Gateway:           zeroclaw gateway");
+        if provider_name == "openai-codex" {
+            println!(
+                "    1. Authenticate:      zeroclaw auth login --provider openai-codex --device-code"
+            );
+            println!("    2. Chat:              zeroclaw agent --provider openai-codex -m \"Hello!\"");
+            println!("    3. Gateway:           zeroclaw gateway");
+        } else if provider_name == "anthropic" {
+            println!("    1. API key mode:      export ANTHROPIC_API_KEY=\"sk-ant-...\"");
+            println!(
+                "    2. Subscription mode: zeroclaw auth paste-token --provider anthropic --auth-kind authorization"
+            );
+            println!("    3. Chat:              zeroclaw agent -m \"Hello!\"");
+            println!("    4. Gateway:           zeroclaw gateway");
+        } else {
+            let env_var = provider_env_var(&provider_name);
+            println!("    1. Set your API key:  export {env_var}=\"sk-...\"");
+            println!("    2. Or edit:           ~/.zeroclaw/config.toml");
+            println!("    3. Chat:              zeroclaw agent -m \"Hello!\"");
+            println!("    4. Gateway:           zeroclaw gateway");
+        }
     } else {
         println!("    1. Chat:     zeroclaw agent -m \"Hello!\"");
         println!("    2. Gateway:  zeroclaw gateway");
@@ -395,6 +411,7 @@ fn default_model_for_provider(provider: &str) -> String {
     match provider {
         "anthropic" => "claude-sonnet-4-20250514".into(),
         "openai" => "gpt-4o".into(),
+        "openai-codex" => "gpt-5-codex".into(),
         "ollama" => "llama3.2".into(),
         "groq" => "llama-3.3-70b-versatile".into(),
         "deepseek" => "deepseek-chat".into(),
@@ -490,6 +507,10 @@ fn setup_provider() -> Result<(String, String, String)> {
             ("venice", "Venice AI — privacy-first (Llama, Opus)"),
             ("anthropic", "Anthropic — Claude Sonnet & Opus (direct)"),
             ("openai", "OpenAI — GPT-4o, o1, GPT-5 (direct)"),
+            (
+                "openai-codex",
+                "OpenAI Codex (ChatGPT subscription OAuth, no API key)",
+            ),
             ("deepseek", "DeepSeek — V3 & R1 (affordable)"),
             ("mistral", "Mistral — Large & Codestral"),
             ("xai", "xAI — Grok 3 & 4"),
@@ -580,6 +601,68 @@ fn setup_provider() -> Result<(String, String, String)> {
     let api_key = if provider_name == "ollama" {
         print_bullet("Ollama runs locally — no API key needed!");
         String::new()
+    } else if provider_name == "openai-codex" {
+        print_bullet("OpenAI Codex uses ChatGPT OAuth subscription tokens.");
+        print_bullet("No API key is required for this provider.");
+        println!();
+
+        let methods = vec![
+            "OAuth login after onboarding (recommended)",
+            "Paste redirect flow after onboarding",
+            "Skip for now",
+        ];
+        let method_idx = Select::new()
+            .with_prompt("  Select authentication method for OpenAI Codex")
+            .items(&methods)
+            .default(0)
+            .interact()?;
+
+        match method_idx {
+            0 => {
+                print_bullet("After setup, run:");
+                print_bullet("`zeroclaw auth login --provider openai-codex --device-code`");
+            }
+            1 => {
+                print_bullet("After setup, run:");
+                print_bullet("`zeroclaw auth login --provider openai-codex`");
+                print_bullet(
+                    "`zeroclaw auth paste-redirect --provider openai-codex --profile default`",
+                );
+            }
+            _ => {
+                print_bullet("You can authenticate later with `zeroclaw auth login --provider openai-codex`.");
+            }
+        }
+        String::new()
+    } else if provider_name == "anthropic" {
+        println!();
+        print_bullet("Anthropic supports both API keys and Claude Code setup tokens.");
+        let methods = vec![
+            "API key (x-api-key header)",
+            "Setup token (Authorization header, Claude Code subscription)",
+            "Skip for now",
+        ];
+        let method_idx = Select::new()
+            .with_prompt("  Select authentication method for Anthropic")
+            .items(&methods)
+            .default(0)
+            .interact()?;
+
+        match method_idx {
+            0 => {
+                print_bullet("Get your API key at: https://console.anthropic.com/settings/keys");
+                Input::new()
+                    .with_prompt("  Paste your Anthropic API key")
+                    .allow_empty(true)
+                    .interact_text()?
+            }
+            1 => {
+                print_bullet("After setup, run:");
+                print_bullet("`zeroclaw auth paste-token --provider anthropic --auth-kind authorization`");
+                String::new()
+            }
+            _ => String::new(),
+        }
     } else if provider_name == "gemini"
         || provider_name == "google"
         || provider_name == "google-gemini"
@@ -715,6 +798,10 @@ fn setup_provider() -> Result<(String, String, String)> {
             ("gpt-4o-mini", "GPT-4o Mini (fast, cheap)"),
             ("o1-mini", "o1-mini (reasoning)"),
         ],
+        "openai-codex" => vec![
+            ("gpt-5-codex", "GPT-5 Codex (recommended)"),
+            ("o4-mini", "o4-mini (fallback)"),
+        ],
         "venice" => vec![
             ("llama-3.3-70b", "Llama 3.3 70B (default, fast)"),
             ("claude-opus-45", "Claude Opus 4.5 via Venice (strongest)"),
@@ -826,6 +913,7 @@ fn provider_env_var(name: &str) -> &'static str {
         "openrouter" => "OPENROUTER_API_KEY",
         "anthropic" => "ANTHROPIC_API_KEY",
         "openai" => "OPENAI_API_KEY",
+        "openai-codex" => "OPENAI_CODEX_OAUTH (use `zeroclaw auth login`)",
         "venice" => "VENICE_API_KEY",
         "groq" => "GROQ_API_KEY",
         "mistral" => "MISTRAL_API_KEY",
@@ -2330,15 +2418,41 @@ fn print_summary(config: &Config) {
     let mut step = 1u8;
 
     if config.api_key.is_none() {
-        let env_var = provider_env_var(config.default_provider.as_deref().unwrap_or("openrouter"));
-        println!(
-            "    {} Set your API key:",
-            style(format!("{step}.")).cyan().bold()
-        );
-        println!(
-            "       {}",
-            style(format!("export {env_var}=\"sk-...\"")).yellow()
-        );
+        let provider = config.default_provider.as_deref().unwrap_or("openrouter");
+        if provider == "openai-codex" {
+            println!(
+                "    {} Authenticate OpenAI Codex:",
+                style(format!("{step}.")).cyan().bold()
+            );
+            println!(
+                "       {}",
+                style("zeroclaw auth login --provider openai-codex --device-code").yellow()
+            );
+        } else if provider == "anthropic" {
+            println!(
+                "    {} Configure Anthropic auth:",
+                style(format!("{step}.")).cyan().bold()
+            );
+            println!(
+                "       {}",
+                style("export ANTHROPIC_API_KEY=\"sk-ant-...\"").yellow()
+            );
+            println!(
+                "       {}",
+                style("or: zeroclaw auth paste-token --provider anthropic --auth-kind authorization")
+                    .yellow()
+            );
+        } else {
+            let env_var = provider_env_var(provider);
+            println!(
+                "    {} Set your API key:",
+                style(format!("{step}.")).cyan().bold()
+            );
+            println!(
+                "       {}",
+                style(format!("export {env_var}=\"sk-...\"")).yellow()
+            );
+        }
         println!();
         step += 1;
     }
@@ -2814,6 +2928,10 @@ mod tests {
         assert_eq!(provider_env_var("openrouter"), "OPENROUTER_API_KEY");
         assert_eq!(provider_env_var("anthropic"), "ANTHROPIC_API_KEY");
         assert_eq!(provider_env_var("openai"), "OPENAI_API_KEY");
+        assert_eq!(
+            provider_env_var("openai-codex"),
+            "OPENAI_CODEX_OAUTH (use `zeroclaw auth login`)"
+        );
         assert_eq!(provider_env_var("ollama"), "API_KEY"); // fallback
         assert_eq!(provider_env_var("xai"), "XAI_API_KEY");
         assert_eq!(provider_env_var("grok"), "XAI_API_KEY"); // alias

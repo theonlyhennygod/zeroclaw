@@ -36,6 +36,7 @@ pub async fn run(
     provider_override: Option<String>,
     model_override: Option<String>,
     temperature: f64,
+    auth_profile_override: Option<String>,
 ) -> Result<()> {
     // ── Wire up agnostic subsystems ──────────────────────────────
     let observer: Arc<dyn Observer> =
@@ -73,10 +74,15 @@ pub async fn run(
         .or(config.default_model.as_deref())
         .unwrap_or("anthropic/claude-sonnet-4-20250514");
 
-    let provider: Box<dyn Provider> = providers::create_resilient_provider(
+    let provider: Box<dyn Provider> = providers::create_resilient_provider_with_options(
         provider_name,
         config.api_key.as_deref(),
         &config.reliability,
+        &providers::ProviderRuntimeOptions {
+            auth_profile_override,
+            zeroclaw_dir: config.config_path.parent().map(std::path::PathBuf::from),
+            secrets_encrypt: config.secrets.encrypt,
+        },
     )?;
 
     observer.record_event(&ObserverEvent::AgentStart {

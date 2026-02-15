@@ -391,10 +391,15 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
 /// Start all configured channels and route messages to the agent
 #[allow(clippy::too_many_lines)]
 pub async fn start_channels(config: Config) -> Result<()> {
-    let provider: Arc<dyn Provider> = Arc::from(providers::create_resilient_provider(
+    let provider: Arc<dyn Provider> = Arc::from(providers::create_resilient_provider_with_options(
         config.default_provider.as_deref().unwrap_or("openrouter"),
         config.api_key.as_deref(),
         &config.reliability,
+        &providers::ProviderRuntimeOptions {
+            auth_profile_override: None,
+            zeroclaw_dir: config.config_path.parent().map(std::path::PathBuf::from),
+            secrets_encrypt: config.secrets.encrypt,
+        },
     )?);
 
     // Warm up the provider connection pool (TLS handshake, DNS, HTTP/2 setup)

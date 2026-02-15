@@ -3,6 +3,7 @@ pub mod compatible;
 pub mod gemini;
 pub mod ollama;
 pub mod openai;
+pub mod openai_codex;
 pub mod openrouter;
 pub mod reliable;
 pub mod traits;
@@ -11,8 +12,26 @@ pub use traits::Provider;
 
 use compatible::{AuthStyle, OpenAiCompatibleProvider};
 use reliable::ReliableProvider;
+use std::path::PathBuf;
 
 const MAX_API_ERROR_CHARS: usize = 200;
+
+#[derive(Debug, Clone)]
+pub struct ProviderRuntimeOptions {
+    pub auth_profile_override: Option<String>,
+    pub zeroclaw_dir: Option<PathBuf>,
+    pub secrets_encrypt: bool,
+}
+
+impl Default for ProviderRuntimeOptions {
+    fn default() -> Self {
+        Self {
+            auth_profile_override: None,
+            zeroclaw_dir: None,
+            secrets_encrypt: true,
+        }
+    }
+}
 
 fn is_secret_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | ':')
@@ -34,7 +53,7 @@ fn token_end(input: &str, from: usize) -> usize {
 ///
 /// Redacts tokens with prefixes like `sk-`, `xoxb-`, and `xoxp-`.
 pub fn scrub_secret_patterns(input: &str) -> String {
-    const PREFIXES: [&str; 3] = ["sk-", "xoxb-", "xoxp-"];
+    const PREFIXES: [&str; 6] = ["sk-", "xoxb-", "xoxp-", "sk-ant-", "sess-", "eyJ"];
 
     let mut scrubbed = input.to_string();
 
@@ -90,86 +109,194 @@ pub async fn api_error(provider: &str, response: reqwest::Response) -> anyhow::E
     anyhow::anyhow!("{provider} API error ({status}): {sanitized}")
 }
 
+fn non_empty_env(var: &str) -> Option<String> {
+    std::env::var(var)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+/// Resolve provider credential from env and config value.
+///
+/// Priority:
+/// 1. Provider-specific env vars (left-to-right)
+/// 2. Shared config `api_key` passed in
+pub fn resolve_api_key(provider: &str, config_api_key: Option<&str>) -> Option<String> {
+    let env_vars: &[&str] = match provider {
+        "openrouter" => &["OPENROUTER_API_KEY"],
+        "openai" => &["OPENAI_API_KEY"],
+        "openai-codex" | "openai_codex" | "codex" => &[],
+        "anthropic" => &[
+            "ANTHROPIC_AUTH_TOKEN",
+            "ANTHROPIC_OAUTH_TOKEN",
+            "ANTHROPIC_API_KEY",
+        ],
+        "gemini" | "google" | "google-gemini" => &["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+        _ => &["API_KEY"],
+    };
+
+    for var in env_vars {
+        if let Some(value) = non_empty_env(var) {
+            return Some(value);
+        }
+    }
+
+    config_api_key
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+}
+
 /// Factory: create the right provider from config
 #[allow(clippy::too_many_lines)]
 pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<dyn Provider>> {
+    create_provider_with_options(name, api_key, &ProviderRuntimeOptions::default())
+}
+
+/// Factory with runtime options (auth profile override, zeroclaw dir, encryption mode).
+#[allow(clippy::too_many_lines)]
+pub fn create_provider_with_options(
+    name: &str,
+    api_key: Option<&str>,
+    options: &ProviderRuntimeOptions,
+) -> anyhow::Result<Box<dyn Provider>> {
+    let resolved_key = resolve_api_key(name, api_key);
+
     match name {
         // ── Primary providers (custom implementations) ───────
-        "openrouter" => Ok(Box::new(openrouter::OpenRouterProvider::new(api_key))),
-        "anthropic" => Ok(Box::new(anthropic::AnthropicProvider::new(api_key))),
-        "openai" => Ok(Box::new(openai::OpenAiProvider::new(api_key))),
+        "openrouter" => Ok(Box::new(openrouter::OpenRouterProvider::new(
+            resolved_key.as_deref(),
+        ))),
+        "anthropic" => Ok(Box::new(anthropic::AnthropicProvider::new_with_options(
+            api_key, options,
+        ))),
+        "openai" => Ok(Box::new(openai::OpenAiProvider::new(resolved_key.as_deref()))),
+        "openai-codex" | "openai_codex" | "codex" => {
+            Ok(Box::new(openai_codex::OpenAiCodexProvider::new(options)))
+        }
         "ollama" => Ok(Box::new(ollama::OllamaProvider::new(
-            api_key.filter(|k| !k.is_empty()),
+            resolved_key.as_deref().filter(|k| !k.is_empty()),
         ))),
         "gemini" | "google" | "google-gemini" => {
-            Ok(Box::new(gemini::GeminiProvider::new(api_key)))
+            Ok(Box::new(gemini::GeminiProvider::new(resolved_key.as_deref())))
         }
 
         // ── OpenAI-compatible providers ──────────────────────
         "venice" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Venice", "https://api.venice.ai", api_key, AuthStyle::Bearer,
+            "Venice",
+            "https://api.venice.ai",
+            resolved_key.as_deref(),
+            AuthStyle::Bearer,
         ))),
         "vercel" | "vercel-ai" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Vercel AI Gateway", "https://api.vercel.ai", api_key, AuthStyle::Bearer,
+            "Vercel AI Gateway",
+            "https://api.vercel.ai",
+            resolved_key.as_deref(),
+            AuthStyle::Bearer,
         ))),
         "cloudflare" | "cloudflare-ai" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Cloudflare AI Gateway",
             "https://gateway.ai.cloudflare.com/v1",
-            api_key,
+            resolved_key.as_deref(),
             AuthStyle::Bearer,
         ))),
         "moonshot" | "kimi" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Moonshot", "https://api.moonshot.cn", api_key, AuthStyle::Bearer,
+            "Moonshot",
+            "https://api.moonshot.cn",
+            resolved_key.as_deref(),
+            AuthStyle::Bearer,
         ))),
         "synthetic" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Synthetic", "https://api.synthetic.com", api_key, AuthStyle::Bearer,
+            "Synthetic",
+            "https://api.synthetic.com",
+            resolved_key.as_deref(),
+            AuthStyle::Bearer,
         ))),
         "opencode" | "opencode-zen" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "OpenCode Zen", "https://api.opencode.ai", api_key, AuthStyle::Bearer,
+            "OpenCode Zen",
+            "https://api.opencode.ai",
+            resolved_key.as_deref(),
+            AuthStyle::Bearer,
         ))),
         "zai" | "z.ai" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Z.AI", "https://api.z.ai", api_key, AuthStyle::Bearer,
+            "Z.AI",
+            "https://api.z.ai",
+            resolved_key.as_deref(),
+            AuthStyle::Bearer,
         ))),
         "glm" | "zhipu" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "GLM", "https://open.bigmodel.cn/api/paas", api_key, AuthStyle::Bearer,
+            "GLM",
+            "https://open.bigmodel.cn/api/paas",
+            resolved_key.as_deref(),
+            AuthStyle::Bearer,
         ))),
         "minimax" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "MiniMax", "https://api.minimax.chat", api_key, AuthStyle::Bearer,
+            "MiniMax",
+            "https://api.minimax.chat",
+            resolved_key.as_deref(),
+            AuthStyle::Bearer,
         ))),
         "bedrock" | "aws-bedrock" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Amazon Bedrock",
             "https://bedrock-runtime.us-east-1.amazonaws.com",
-            api_key,
+            resolved_key.as_deref(),
             AuthStyle::Bearer,
         ))),
         "qianfan" | "baidu" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Qianfan", "https://aip.baidubce.com", api_key, AuthStyle::Bearer,
+            "Qianfan",
+            "https://aip.baidubce.com",
+            resolved_key.as_deref(),
+            AuthStyle::Bearer,
         ))),
 
         // ── Extended ecosystem (community favorites) ─────────
         "groq" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Groq", "https://api.groq.com/openai", api_key, AuthStyle::Bearer,
+            "Groq",
+            "https://api.groq.com/openai",
+            resolved_key.as_deref(),
+            AuthStyle::Bearer,
         ))),
         "mistral" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Mistral", "https://api.mistral.ai", api_key, AuthStyle::Bearer,
+            "Mistral",
+            "https://api.mistral.ai",
+            resolved_key.as_deref(),
+            AuthStyle::Bearer,
         ))),
         "xai" | "grok" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "xAI", "https://api.x.ai", api_key, AuthStyle::Bearer,
+            "xAI",
+            "https://api.x.ai",
+            resolved_key.as_deref(),
+            AuthStyle::Bearer,
         ))),
         "deepseek" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "DeepSeek", "https://api.deepseek.com", api_key, AuthStyle::Bearer,
+            "DeepSeek",
+            "https://api.deepseek.com",
+            resolved_key.as_deref(),
+            AuthStyle::Bearer,
         ))),
         "together" | "together-ai" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Together AI", "https://api.together.xyz", api_key, AuthStyle::Bearer,
+            "Together AI",
+            "https://api.together.xyz",
+            resolved_key.as_deref(),
+            AuthStyle::Bearer,
         ))),
         "fireworks" | "fireworks-ai" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Fireworks AI", "https://api.fireworks.ai/inference", api_key, AuthStyle::Bearer,
+            "Fireworks AI",
+            "https://api.fireworks.ai/inference",
+            resolved_key.as_deref(),
+            AuthStyle::Bearer,
         ))),
         "perplexity" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Perplexity", "https://api.perplexity.ai", api_key, AuthStyle::Bearer,
+            "Perplexity",
+            "https://api.perplexity.ai",
+            resolved_key.as_deref(),
+            AuthStyle::Bearer,
         ))),
         "cohere" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Cohere", "https://api.cohere.com/compatibility", api_key, AuthStyle::Bearer,
+            "Cohere",
+            "https://api.cohere.com/compatibility",
+            resolved_key.as_deref(),
+            AuthStyle::Bearer,
         ))),
 
         // ── Bring Your Own Provider (custom URL) ───────────
@@ -182,7 +309,7 @@ pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<
             Ok(Box::new(OpenAiCompatibleProvider::new(
                 "Custom",
                 base_url,
-                api_key,
+                resolved_key.as_deref(),
                 AuthStyle::Bearer,
             )))
         }
@@ -200,11 +327,26 @@ pub fn create_resilient_provider(
     api_key: Option<&str>,
     reliability: &crate::config::ReliabilityConfig,
 ) -> anyhow::Result<Box<dyn Provider>> {
+    create_resilient_provider_with_options(
+        primary_name,
+        api_key,
+        reliability,
+        &ProviderRuntimeOptions::default(),
+    )
+}
+
+/// Create provider chain with retry/fallback behavior and auth runtime options.
+pub fn create_resilient_provider_with_options(
+    primary_name: &str,
+    api_key: Option<&str>,
+    reliability: &crate::config::ReliabilityConfig,
+    options: &ProviderRuntimeOptions,
+) -> anyhow::Result<Box<dyn Provider>> {
     let mut providers: Vec<(String, Box<dyn Provider>)> = Vec::new();
 
     providers.push((
         primary_name.to_string(),
-        create_provider(primary_name, api_key)?,
+        create_provider_with_options(primary_name, api_key, options)?,
     ));
 
     for fallback in &reliability.fallback_providers {
@@ -221,7 +363,7 @@ pub fn create_resilient_provider(
             );
         }
 
-        match create_provider(fallback, api_key) {
+        match create_provider_with_options(fallback, api_key, options) {
             Ok(provider) => providers.push((fallback.clone(), provider)),
             Err(e) => {
                 tracing::warn!(
@@ -259,6 +401,12 @@ mod tests {
     #[test]
     fn factory_openai() {
         assert!(create_provider("openai", Some("sk-test")).is_ok());
+    }
+
+    #[test]
+    fn factory_openai_codex() {
+        let options = ProviderRuntimeOptions::default();
+        assert!(create_provider_with_options("openai-codex", None, &options).is_ok());
     }
 
     #[test]
@@ -582,5 +730,26 @@ mod tests {
         let input = "simple upstream timeout";
         let result = sanitize_api_error(input);
         assert_eq!(result, input);
+    }
+
+    #[test]
+    fn resolve_api_key_prefers_anthropic_auth_token() {
+        std::env::set_var("ANTHROPIC_AUTH_TOKEN", "token-auth");
+        std::env::set_var("ANTHROPIC_OAUTH_TOKEN", "token-oauth");
+        std::env::set_var("ANTHROPIC_API_KEY", "token-api");
+
+        let resolved = resolve_api_key("anthropic", Some("config-key"));
+        assert_eq!(resolved.as_deref(), Some("token-auth"));
+
+        std::env::remove_var("ANTHROPIC_AUTH_TOKEN");
+        std::env::remove_var("ANTHROPIC_OAUTH_TOKEN");
+        std::env::remove_var("ANTHROPIC_API_KEY");
+    }
+
+    #[test]
+    fn resolve_api_key_falls_back_to_config() {
+        std::env::remove_var("OPENAI_API_KEY");
+        let resolved = resolve_api_key("openai", Some("config-key"));
+        assert_eq!(resolved.as_deref(), Some("config-key"));
     }
 }
