@@ -224,10 +224,34 @@ mod tests {
         })
     }
 
-    #[tokio::test]
+    /// RAII guard that restores an environment variable to its original state on drop,
+    /// ensuring cleanup even if the test panics.
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let original = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(val) => std::env::set_var(self.key, val),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn shell_does_not_leak_api_key() {
-        std::env::set_var("API_KEY", "sk-test-secret-12345");
-        std::env::set_var("ZEROCLAW_API_KEY", "sk-test-secret-67890");
+        let _g1 = EnvGuard::set("API_KEY", "sk-test-secret-12345");
+        let _g2 = EnvGuard::set("ZEROCLAW_API_KEY", "sk-test-secret-67890");
 
         let tool = ShellTool::new(test_security_with_env_cmd());
         let result = tool.execute(json!({"command": "env"})).await.unwrap();
@@ -240,9 +264,6 @@ mod tests {
             !result.output.contains("sk-test-secret-67890"),
             "ZEROCLAW_API_KEY leaked to shell command output"
         );
-
-        std::env::remove_var("API_KEY");
-        std::env::remove_var("ZEROCLAW_API_KEY");
     }
 
     #[tokio::test]
