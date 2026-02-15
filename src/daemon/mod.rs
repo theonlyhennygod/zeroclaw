@@ -153,16 +153,19 @@ where
                 Ok(()) => {
                     crate::health::mark_component_error(name, "component exited unexpectedly");
                     tracing::warn!("Daemon component '{name}' exited unexpectedly");
+                    // Clean exit — reset backoff since the component ran successfully
+                    backoff = initial_backoff_secs.max(1);
                 }
                 Err(e) => {
                     crate::health::mark_component_error(name, e.to_string());
                     tracing::error!("Daemon component '{name}' failed: {e}");
+                    // Error — increase backoff for next restart
+                    backoff = backoff.saturating_mul(2).min(max_backoff);
                 }
             }
 
             crate::health::bump_component_restart(name);
             tokio::time::sleep(Duration::from_secs(backoff)).await;
-            backoff = backoff.saturating_mul(2).min(max_backoff);
         }
     })
 }
