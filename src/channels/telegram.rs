@@ -457,12 +457,15 @@ Allowlist Telegram @username or numeric user ID, then run `zeroclaw onboard --ch
                         continue;
                     }
 
-                    let chat_id = message
+                    let Some(chat_id_num) = message
                         .get("chat")
                         .and_then(|c| c.get("id"))
                         .and_then(serde_json::Value::as_i64)
-                        .map(|id| id.to_string())
-                        .unwrap_or_default();
+                    else {
+                        tracing::warn!("Telegram: skipping message with missing chat.id");
+                        continue;
+                    };
+                    let chat_id = chat_id_num.to_string();
 
                     let msg = ChannelMessage {
                         id: Uuid::new_v4().to_string(),
@@ -476,6 +479,7 @@ Allowlist Telegram @username or numeric user ID, then run `zeroclaw onboard --ch
                     };
 
                     if tx.send(msg).await.is_err() {
+                        tracing::warn!("Telegram: channel receiver dropped, stopping listener");
                         return Ok(());
                     }
                 }
