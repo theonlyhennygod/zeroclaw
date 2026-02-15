@@ -67,12 +67,13 @@ pub trait Scout: Send + Sync {
 /// Searches GitHub for repos matching skill-related queries.
 pub struct GitHubScout {
     client: reqwest::Client,
-    token: Option<String>,
     queries: Vec<String>,
 }
 
 impl GitHubScout {
     pub fn new(token: Option<String>) -> Self {
+        use std::time::Duration;
+
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
             reqwest::header::ACCEPT,
@@ -92,12 +93,12 @@ impl GitHubScout {
 
         let client = reqwest::Client::builder()
             .default_headers(headers)
+            .timeout(Duration::from_secs(30))
             .build()
             .expect("failed to build reqwest client");
 
         Self {
             client,
-            token,
             queries: vec![
                 "zeroclaw skill".into(),
                 "ai agent skill".into(),

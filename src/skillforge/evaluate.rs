@@ -60,7 +60,7 @@ pub struct Evaluator {
     min_score: f64,
 }
 
-/// Known-bad patterns in repo names / descriptions.
+/// Known-bad patterns in repo names / descriptions (matched as whole words).
 const BAD_PATTERNS: &[&str] = &[
     "malware",
     "exploit",
@@ -70,6 +70,21 @@ const BAD_PATTERNS: &[&str] = &[
     "ransomware",
     "trojan",
 ];
+
+/// Check if `haystack` contains `word` as a whole word (bounded by non-alphanumeric chars).
+fn contains_word(haystack: &str, word: &str) -> bool {
+    for (i, _) in haystack.match_indices(word) {
+        let before_ok = i == 0
+            || !haystack.as_bytes()[i - 1].is_ascii_alphanumeric();
+        let after = i + word.len();
+        let after_ok = after >= haystack.len()
+            || !haystack.as_bytes()[after].is_ascii_alphanumeric();
+        if before_ok && after_ok {
+            return true;
+        }
+    }
+    false
+}
 
 impl Evaluator {
     pub fn new(min_score: f64) -> Self {
@@ -125,27 +140,27 @@ impl Evaluator {
 
     /// Security: license presence + bad-pattern check.
     fn score_security(&self, c: &ScoutResult) -> f64 {
-        let mut score = 0.5;
+        let mut score: f64 = 0.5;
 
         // License bonus
         if c.has_license {
             score += 0.3;
         }
 
-        // Bad-pattern penalty
+        // Bad-pattern penalty (whole-word match)
         let lower_name = c.name.to_lowercase();
         let lower_desc = c.description.to_lowercase();
         for pat in BAD_PATTERNS {
-            if lower_name.contains(pat) || lower_desc.contains(pat) {
+            if contains_word(&lower_name, pat) || contains_word(&lower_desc, pat) {
                 score -= 0.5;
                 break;
             }
         }
 
-        // Recency bonus: updated within last 180 days
+        // Recency bonus: updated within last 180 days (guard against future timestamps)
         if let Some(updated) = c.updated_at {
             let age_days = (chrono::Utc::now() - updated).num_days();
-            if age_days < 180 {
+            if (0..180).contains(&age_days) {
                 score += 0.2;
             }
         }
@@ -201,7 +216,8 @@ mod tests {
         let mut c = make_candidate(1000, Some("Rust"), true);
         c.name = "malware-skill".into();
         let res = eval.evaluate(c);
-        assert!(res.scores.security < 0.5);
+        // 0.5 base + 0.3 license - 0.5 bad_pattern + 0.2 recency = 0.5
+        assert!(res.scores.security <= 0.5, "security: {}", res.scores.security);
     }
 
     #[test]
@@ -219,5 +235,27 @@ mod tests {
             security: 0.0,
         };
         assert!((s2.total()).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn hackathon_not_flagged_as_bad() {
+        let eval = Evaluator::new(0.7);
+        let mut c = make_candidate(500, Some("Rust"), true);
+        c.name = "hackathon-tools".into();
+        c.description = "Tools for hackathons and lifehacks".into();
+        let res = eval.evaluate(c);
+        // "hack" should NOT match "hackathon" or "lifehacks"
+        assert!(res.scores.security >= 0.5, "security: {}", res.scores.security);
+    }
+
+    #[test]
+    fn exact_hack_is_flagged() {
+        let eval = Evaluator::new(0.7);
+        let mut c = make_candidate(500, Some("Rust"), false);
+        c.name = "hack-tool".into();
+        c.updated_at = None;
+        let res = eval.evaluate(c);
+        // 0.5 base + 0.0 license - 0.5 bad_pattern + 0.0 recency = 0.0
+        assert!(res.scores.security < 0.5, "security: {}", res.scores.security);
     }
 }

@@ -1,7 +1,7 @@
 //! Integrator — generates ZeroClaw-standard SKILL.toml + SKILL.md from scout results.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -83,7 +83,7 @@ forge_timestamp = "{now}"
             now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ"),
             name = escape_toml(&c.name),
             description = escape_toml(&c.description),
-            url = c.url,
+            url = escape_toml(&c.url),
             owner = escape_toml(&c.owner),
             lang = lang,
             license = if c.has_license { "true" } else { "false" },
@@ -135,9 +135,15 @@ Review before enabling in production.
     }
 }
 
-/// Escape double-quotes for TOML string values.
+/// Escape special characters for TOML basic string values.
 fn escape_toml(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
+        .replace('\u{08}', "\\b")
+        .replace('\u{0C}', "\\f")
 }
 
 // ---------------------------------------------------------------------------
@@ -188,8 +194,11 @@ mod tests {
     }
 
     #[test]
-    fn escape_toml_handles_quotes() {
+    fn escape_toml_handles_quotes_and_control_chars() {
         assert_eq!(escape_toml(r#"say "hello""#), r#"say \"hello\""#);
         assert_eq!(escape_toml(r"back\slash"), r"back\\slash");
+        assert_eq!(escape_toml("line\nbreak"), "line\\nbreak");
+        assert_eq!(escape_toml("tab\there"), "tab\\there");
+        assert_eq!(escape_toml("cr\rhere"), "cr\\rhere");
     }
 }
