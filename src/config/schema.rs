@@ -371,16 +371,85 @@ impl Default for AutonomyConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeConfig {
-    /// Runtime kind (currently supported: "native").
-    ///
-    /// Reserved values (not implemented yet): "docker", "cloudflare".
+    /// Runtime kind (`native` | `docker`).
+    #[serde(default = "default_runtime_kind")]
     pub kind: String,
+
+    /// Docker runtime settings (used when `kind = "docker"`).
+    #[serde(default)]
+    pub docker: DockerRuntimeConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DockerRuntimeConfig {
+    /// Runtime image used to execute shell commands.
+    #[serde(default = "default_docker_image")]
+    pub image: String,
+
+    /// Docker network mode (`none`, `bridge`, etc.).
+    #[serde(default = "default_docker_network")]
+    pub network: String,
+
+    /// Optional memory limit in MB (`None` = no explicit limit).
+    #[serde(default = "default_docker_memory_limit_mb")]
+    pub memory_limit_mb: Option<u64>,
+
+    /// Optional CPU limit (`None` = no explicit limit).
+    #[serde(default = "default_docker_cpu_limit")]
+    pub cpu_limit: Option<f64>,
+
+    /// Mount root filesystem as read-only.
+    #[serde(default = "default_true")]
+    pub read_only_rootfs: bool,
+
+    /// Mount configured workspace into `/workspace`.
+    #[serde(default = "default_true")]
+    pub mount_workspace: bool,
+
+    /// Optional workspace root allowlist for Docker mount validation.
+    #[serde(default)]
+    pub allowed_workspace_roots: Vec<String>,
+}
+
+fn default_runtime_kind() -> String {
+    "native".into()
+}
+
+fn default_docker_image() -> String {
+    "alpine:3.20".into()
+}
+
+fn default_docker_network() -> String {
+    "none".into()
+}
+
+fn default_docker_memory_limit_mb() -> Option<u64> {
+    Some(512)
+}
+
+fn default_docker_cpu_limit() -> Option<f64> {
+    Some(1.0)
+}
+
+impl Default for DockerRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            image: default_docker_image(),
+            network: default_docker_network(),
+            memory_limit_mb: default_docker_memory_limit_mb(),
+            cpu_limit: default_docker_cpu_limit(),
+            read_only_rootfs: true,
+            mount_workspace: true,
+            allowed_workspace_roots: Vec::new(),
+        }
+    }
 }
 
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
-            kind: "native".into(),
+            kind: default_runtime_kind(),
+            docker: DockerRuntimeConfig::default(),
         }
     }
 }
@@ -856,6 +925,12 @@ mod tests {
     fn runtime_config_default() {
         let r = RuntimeConfig::default();
         assert_eq!(r.kind, "native");
+        assert_eq!(r.docker.image, "alpine:3.20");
+        assert_eq!(r.docker.network, "none");
+        assert_eq!(r.docker.memory_limit_mb, Some(512));
+        assert_eq!(r.docker.cpu_limit, Some(1.0));
+        assert!(r.docker.read_only_rootfs);
+        assert!(r.docker.mount_workspace);
     }
 
     #[test]
@@ -908,6 +983,7 @@ mod tests {
             },
             runtime: RuntimeConfig {
                 kind: "docker".into(),
+                ..RuntimeConfig::default()
             },
             reliability: ReliabilityConfig::default(),
             model_routes: Vec::new(),
