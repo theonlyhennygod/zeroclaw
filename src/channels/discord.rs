@@ -146,7 +146,7 @@ impl Channel for DiscordChannel {
             "op": 2,
             "d": {
                 "token": self.bot_token,
-                "intents": 33281, // GUILDS | GUILD_MESSAGES | MESSAGE_CONTENT | DIRECT_MESSAGES
+                "intents": 37377, // GUILDS | GUILD_MESSAGES | MESSAGE_CONTENT | DIRECT_MESSAGES
                 "properties": {
                     "os": "linux",
                     "browser": "zeroclaw",
