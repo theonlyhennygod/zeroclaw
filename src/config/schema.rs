@@ -112,6 +112,18 @@ pub struct GatewayConfig {
     /// Paired bearer tokens (managed automatically, not user-edited)
     #[serde(default)]
     pub paired_tokens: Vec<String>,
+
+    /// Max `/pair` requests per minute per client key.
+    #[serde(default = "default_pair_rate_limit")]
+    pub pair_rate_limit_per_minute: u32,
+
+    /// Max `/webhook` requests per minute per client key.
+    #[serde(default = "default_webhook_rate_limit")]
+    pub webhook_rate_limit_per_minute: u32,
+
+    /// TTL for webhook idempotency keys.
+    #[serde(default = "default_idempotency_ttl_secs")]
+    pub idempotency_ttl_secs: u64,
 }
 
 fn default_gateway_port() -> u16 {
@@ -120,6 +132,18 @@ fn default_gateway_port() -> u16 {
 
 fn default_gateway_host() -> String {
     "127.0.0.1".into()
+}
+
+fn default_pair_rate_limit() -> u32 {
+    10
+}
+
+fn default_webhook_rate_limit() -> u32 {
+    60
+}
+
+fn default_idempotency_ttl_secs() -> u64 {
+    300
 }
 
 fn default_true() -> bool {
@@ -134,6 +158,9 @@ impl Default for GatewayConfig {
             require_pairing: true,
             allow_public_bind: false,
             paired_tokens: Vec::new(),
+            pair_rate_limit_per_minute: default_pair_rate_limit(),
+            webhook_rate_limit_per_minute: default_webhook_rate_limit(),
+            idempotency_ttl_secs: default_idempotency_ttl_secs(),
         }
     }
 }
@@ -1433,6 +1460,9 @@ channel_id = "C123"
             g.paired_tokens.is_empty(),
             "No pre-paired tokens by default"
         );
+        assert_eq!(g.pair_rate_limit_per_minute, 10);
+        assert_eq!(g.webhook_rate_limit_per_minute, 60);
+        assert_eq!(g.idempotency_ttl_secs, 300);
     }
 
     #[test]
@@ -1458,12 +1488,18 @@ channel_id = "C123"
             require_pairing: true,
             allow_public_bind: false,
             paired_tokens: vec!["zc_test_token".into()],
+            pair_rate_limit_per_minute: 12,
+            webhook_rate_limit_per_minute: 80,
+            idempotency_ttl_secs: 600,
         };
         let toml_str = toml::to_string(&g).unwrap();
         let parsed: GatewayConfig = toml::from_str(&toml_str).unwrap();
         assert!(parsed.require_pairing);
         assert!(!parsed.allow_public_bind);
         assert_eq!(parsed.paired_tokens, vec!["zc_test_token"]);
+        assert_eq!(parsed.pair_rate_limit_per_minute, 12);
+        assert_eq!(parsed.webhook_rate_limit_per_minute, 80);
+        assert_eq!(parsed.idempotency_ttl_secs, 600);
     }
 
     #[test]
