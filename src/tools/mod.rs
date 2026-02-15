@@ -105,10 +105,10 @@ pub fn all_tools_with_runtime(
     tools.push(Box::new(ImageInfoTool::new(security.clone())));
 
     if http_request_config.enabled {
-        tools.push(Box::new(HttpRequestTool::new(
-            security.clone(),
-            http_request_config.clone(),
-        )));
+        match HttpRequestTool::new(security.clone(), http_request_config.clone()) {
+            Ok(tool) => tools.push(Box::new(tool)),
+            Err(e) => tracing::warn!("Failed to initialize http_request tool: {e}"),
+        }
     }
 
     if let Some(key) = composio_key {
