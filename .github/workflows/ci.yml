@@ -53,14 +53,18 @@ jobs:
           docs_only=true
           while IFS= read -r file; do
             [ -z "$file" ] && continue
-            case "$file" in
-              docs/*|*.md|*.mdx|LICENSE|.github/ISSUE_TEMPLATE/*|.github/pull_request_template.md)
-                ;;
-              *)
-                docs_only=false
-                break
-                ;;
-            esac
+
+            if [[ "$file" == docs/* ]] \
+              || [[ "$file" == *.md ]] \
+              || [[ "$file" == *.mdx ]] \
+              || [[ "$file" == "LICENSE" ]] \
+              || [[ "$file" == .github/ISSUE_TEMPLATE/* ]] \
+              || [[ "$file" == .github/pull_request_template.md ]]; then
+              continue
+            fi
+
+            docs_only=false
+            break
           done <<< "$CHANGED"
 
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
