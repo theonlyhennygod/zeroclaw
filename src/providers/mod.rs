@@ -6,6 +6,7 @@ pub mod openai;
 pub mod openrouter;
 pub mod reliable;
 pub mod router;
+pub mod telnyx;
 pub mod traits;
 
 pub use traits::{ChatMessage, Provider};
@@ -127,6 +128,7 @@ fn resolve_api_key(name: &str, api_key: Option<&str>) -> Option<String> {
         "opencode" | "opencode-zen" => vec!["OPENCODE_API_KEY"],
         "vercel" | "vercel-ai" => vec!["VERCEL_API_KEY"],
         "cloudflare" | "cloudflare-ai" => vec!["CLOUDFLARE_API_KEY"],
+        "telnyx" => vec!["TELNYX_API_KEY"],
         _ => vec![],
     };
 
@@ -167,6 +169,7 @@ pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<
         "gemini" | "google" | "google-gemini" => {
             Ok(Box::new(gemini::GeminiProvider::new(key)))
         }
+        "telnyx" => Ok(Box::new(telnyx::TelnyxProvider::new(key))),
 
         // ── OpenAI-compatible providers ──────────────────────
         "venice" => Ok(Box::new(OpenAiCompatibleProvider::new(
@@ -422,6 +425,12 @@ mod tests {
         assert!(create_provider("gemini", None).is_ok());
     }
 
+    #[test]
+    fn factory_telnyx() {
+        assert!(create_provider("telnyx", Some("test-key")).is_ok());
+        assert!(create_provider("telnyx", None).is_ok());
+    }
+
     // ── OpenAI-compatible providers ──────────────────────────
 
     #[test]
@@ -663,6 +672,7 @@ mod tests {
             "minimax",
             "bedrock",
             "qianfan",
+            "telnyx",
             "groq",
             "mistral",
             "xai",
