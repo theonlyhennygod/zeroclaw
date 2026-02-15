@@ -1,3 +1,9 @@
+//! Tunnel module — expose the gateway through any tunneling service.
+//!
+//! This module provides the `Tunnel` trait and implementations for popular tunnel providers
+//! (Cloudflare, Tailscale, ngrok, custom). Tunnels allow the gateway to be accessed from
+//! the internet without exposing ports directly.
+
 mod cloudflare;
 mod custom;
 mod ngrok;
@@ -18,27 +24,78 @@ use tokio::sync::Mutex;
 
 // ── Tunnel trait ─────────────────────────────────────────────────
 
-/// Agnostic tunnel abstraction — bring your own tunnel provider.
+/// Tunnel trait — implement for any tunnel provider.
 ///
-/// Implementations wrap an external tunnel binary (cloudflared, tailscale,
-/// ngrok, etc.) or a custom command. The gateway calls `start()` after
-/// binding its local port and `stop()` on shutdown.
+/// This trait abstracts over different tunnel providers, allowing `ZeroClaw` to expose
+/// its gateway through any tunneling service. Implementations wrap external tunnel
+/// binaries (cloudflared, tailscale, ngrok, etc.) or custom commands.
+///
+/// # Implementation Guide
+///
+/// 1. Implement `name()` to identify your tunnel provider
+/// 2. Implement `start()` to spawn the tunnel process and extract the public URL
+/// 3. Implement `stop()` to gracefully terminate the tunnel
+/// 4. Implement `health_check()` to verify the tunnel is still running
+/// 5. Implement `public_url()` to return the current public URL
+/// 6. Register your tunnel in the tunnel configuration
+///
+/// # Lifecycle
+///
+/// The gateway calls `start()` after binding its local port and `stop()` on shutdown.
+/// The tunnel should remain running until `stop()` is called.
+///
+/// # Example
+///
+/// See the built-in implementations in this module (`CloudflareTunnel`, `TailscaleTunnel`,
+/// `NgrokTunnel`, `CustomTunnel`) for reference.
 #[async_trait::async_trait]
 pub trait Tunnel: Send + Sync {
-    /// Human-readable provider name (e.g. "cloudflare", "tailscale")
+    /// Human-readable provider name (e.g., "cloudflare", "tailscale", "ngrok").
+    ///
+    /// This name is used for logging and identification.
     fn name(&self) -> &str;
 
-    /// Start the tunnel, exposing `local_host:local_port` externally.
-    /// Returns the public URL on success.
+    /// Start the tunnel, exposing the local server externally.
+    ///
+    /// This method should spawn the tunnel process, wait for it to establish
+    /// a connection, and extract the public URL from its output.
+    ///
+    /// # Parameters
+    ///
+    /// - `local_host`: The local host to expose (e.g., "127.0.0.1")
+    /// - `local_port`: The local port to expose (e.g., 8080)
+    ///
+    /// # Returns
+    ///
+    /// The public URL where the tunnel is accessible (e.g., <https://abc123.cloudflare.com>).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the tunnel process fails to start or the public URL
+    /// cannot be extracted.
     async fn start(&self, local_host: &str, local_port: u16) -> Result<String>;
 
     /// Stop the tunnel process gracefully.
+    ///
+    /// This method should terminate the tunnel process and clean up any resources.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the tunnel cannot be stopped cleanly.
     async fn stop(&self) -> Result<()>;
 
-    /// Check if the tunnel is still alive.
+    /// Check if the tunnel is still alive and healthy.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the tunnel is running and healthy, `false` otherwise.
     async fn health_check(&self) -> bool;
 
     /// Return the public URL if the tunnel is running.
+    ///
+    /// # Returns
+    ///
+    /// `Some(url)` if the tunnel is active, `None` if not started or stopped.
     fn public_url(&self) -> Option<String>;
 }
 

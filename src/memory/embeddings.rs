@@ -1,18 +1,82 @@
+//! Embedding providers — convert text to vectors for semantic search.
+//!
+//! This module defines the `EmbeddingProvider` trait and implementations for generating
+//! text embeddings. Embeddings enable semantic search in the memory system by converting
+//! text into high-dimensional vectors that can be compared using cosine similarity.
+
 use async_trait::async_trait;
 
-/// Trait for embedding providers — convert text to vectors
+/// Trait for embedding providers — convert text to vectors.
+///
+/// This trait abstracts over different embedding APIs, allowing `ZeroClaw` to use
+/// any embedding model for semantic search. Implementations handle API calls,
+/// batching, and vector normalization.
+///
+/// # Implementation Guide
+///
+/// 1. Implement `name()` to identify your provider
+/// 2. Implement `dimensions()` to specify the vector size
+/// 3. Implement `embed()` to convert text batches to vectors
+/// 4. The default `embed_one()` implementation delegates to `embed()`
+/// 5. Register your provider in the embedding configuration
+///
+/// # Example
+///
+/// See the built-in `OpenAiEmbedding` and `NoopEmbedding` implementations in this module.
 #[async_trait]
 pub trait EmbeddingProvider: Send + Sync {
-    /// Provider name
+    /// Provider name (e.g., "openai", "none").
+    ///
+    /// This name is used for logging and identification.
     fn name(&self) -> &str;
 
-    /// Embedding dimensions
+    /// Embedding vector dimensions.
+    ///
+    /// This is the size of the vectors returned by `embed()`. Common values:
+    /// - `OpenAI` text-embedding-3-small: 1536
+    /// - `OpenAI` text-embedding-3-large: 3072
+    /// - Custom models: varies
+    ///
+    /// # Returns
+    ///
+    /// The number of dimensions in each embedding vector.
     fn dimensions(&self) -> usize;
 
-    /// Embed a batch of texts into vectors
+    /// Embed a batch of texts into vectors.
+    ///
+    /// This is the primary method for generating embeddings. Implementations should
+    /// handle batching efficiently and return vectors in the same order as the input.
+    ///
+    /// # Parameters
+    ///
+    /// - `texts`: Slice of text strings to embed
+    ///
+    /// # Returns
+    ///
+    /// A vector of embedding vectors, one per input text. Each inner vector has
+    /// length equal to `dimensions()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the API call fails or the response is invalid.
     async fn embed(&self, texts: &[&str]) -> anyhow::Result<Vec<Vec<f32>>>;
 
-    /// Embed a single text
+    /// Embed a single text into a vector.
+    ///
+    /// The default implementation delegates to `embed()` with a single-element slice.
+    /// Override this if your provider has a more efficient single-text endpoint.
+    ///
+    /// # Parameters
+    ///
+    /// - `text`: The text string to embed
+    ///
+    /// # Returns
+    ///
+    /// An embedding vector with length equal to `dimensions()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the API call fails or returns an empty result.
     async fn embed_one(&self, text: &str) -> anyhow::Result<Vec<f32>> {
         let mut results = self.embed(&[text]).await?;
         results
