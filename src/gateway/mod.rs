@@ -229,32 +229,27 @@ async fn handle_health(State(state): State<AppState>) -> impl IntoResponse {
     Json(body)
 }
 
+/// Prometheus content type for text exposition format.
+const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
+
 /// GET /metrics — Prometheus text exposition format
 async fn handle_metrics(State(state): State<AppState>) -> impl IntoResponse {
-    if let Some(prom) = state
+    let body = if let Some(prom) = state
         .observer
         .as_ref()
         .as_any()
         .downcast_ref::<crate::observability::PrometheusObserver>()
     {
-        (
-            StatusCode::OK,
-            [(
-                header::CONTENT_TYPE,
-                "text/plain; version=0.0.4; charset=utf-8",
-            )],
-            prom.encode(),
-        )
+        prom.encode()
     } else {
-        (
-            StatusCode::OK,
-            [(
-                header::CONTENT_TYPE,
-                "text/plain; version=0.0.4; charset=utf-8",
-            )],
-            String::from("# Prometheus backend not enabled. Set [observability] backend = \"prometheus\" in config.\n"),
-        )
-    }
+        String::from("# Prometheus backend not enabled. Set [observability] backend = \"prometheus\" in config.\n")
+    };
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, PROMETHEUS_CONTENT_TYPE)],
+        body,
+    )
 }
 
 /// POST /pair — exchange one-time code for bearer token

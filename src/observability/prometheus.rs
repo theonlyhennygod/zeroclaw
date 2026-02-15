@@ -15,7 +15,7 @@ pub struct PrometheusObserver {
     errors: IntCounterVec,
 
     // Histograms
-    agent_duration: HistogramVec,
+    agent_duration: Histogram,
     tool_duration: HistogramVec,
     request_latency: Histogram,
 
@@ -59,13 +59,12 @@ impl PrometheusObserver {
         )
         .expect("valid metric");
 
-        let agent_duration = HistogramVec::new(
+        let agent_duration = Histogram::with_opts(
             HistogramOpts::new(
                 "zeroclaw_agent_duration_seconds",
                 "Agent invocation duration in seconds",
             )
             .buckets(vec![0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0]),
-            &["provider", "model"],
         )
         .expect("valid metric");
 
@@ -107,17 +106,17 @@ impl PrometheusObserver {
         .expect("valid metric");
 
         // Register all metrics
-        registry.register(Box::new(agent_starts.clone())).ok();
-        registry.register(Box::new(tool_calls.clone())).ok();
-        registry.register(Box::new(channel_messages.clone())).ok();
-        registry.register(Box::new(heartbeat_ticks.clone())).ok();
-        registry.register(Box::new(errors.clone())).ok();
-        registry.register(Box::new(agent_duration.clone())).ok();
-        registry.register(Box::new(tool_duration.clone())).ok();
-        registry.register(Box::new(request_latency.clone())).ok();
-        registry.register(Box::new(tokens_used.clone())).ok();
-        registry.register(Box::new(active_sessions.clone())).ok();
-        registry.register(Box::new(queue_depth.clone())).ok();
+        registry.register(Box::new(agent_starts.clone())).expect("agent_starts registration");
+        registry.register(Box::new(tool_calls.clone())).expect("tool_calls registration");
+        registry.register(Box::new(channel_messages.clone())).expect("channel_messages registration");
+        registry.register(Box::new(heartbeat_ticks.clone())).expect("heartbeat_ticks registration");
+        registry.register(Box::new(errors.clone())).expect("errors registration");
+        registry.register(Box::new(agent_duration.clone())).expect("agent_duration registration");
+        registry.register(Box::new(tool_duration.clone())).expect("tool_duration registration");
+        registry.register(Box::new(request_latency.clone())).expect("request_latency registration");
+        registry.register(Box::new(tokens_used.clone())).expect("tokens_used registration");
+        registry.register(Box::new(active_sessions.clone())).expect("active_sessions registration");
+        registry.register(Box::new(queue_depth.clone())).expect("queue_depth registration");
 
         Self {
             registry,
@@ -140,8 +139,14 @@ impl PrometheusObserver {
         let encoder = TextEncoder::new();
         let families = self.registry.gather();
         let mut buf = Vec::new();
-        encoder.encode(&families, &mut buf).unwrap_or_default();
-        String::from_utf8(buf).unwrap_or_default()
+        if let Err(e) = encoder.encode(&families, &mut buf) {
+            tracing::error!("Failed to encode Prometheus metrics: {e}");
+            return String::new();
+        }
+        String::from_utf8(buf).unwrap_or_else(|e| {
+            tracing::error!("Prometheus metrics produced invalid UTF-8: {e}");
+            String::new()
+        })
     }
 }
 
@@ -157,12 +162,7 @@ impl Observer for PrometheusObserver {
                 duration,
                 tokens_used,
             } => {
-                // Agent duration is recorded via the histogram; use empty labels
-                // since we don't have provider/model here. The start event tracks
-                // the labels; here we record just the duration.
-                self.agent_duration
-                    .with_label_values(&["", ""])
-                    .observe(duration.as_secs_f64());
+                self.agent_duration.observe(duration.as_secs_f64());
                 if let Some(t) = tokens_used {
                     self.tokens_used.set(i64::try_from(*t).unwrap_or(i64::MAX));
                 }
