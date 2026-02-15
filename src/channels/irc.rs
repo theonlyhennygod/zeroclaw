@@ -1,8 +1,16 @@
 use crate::channels::traits::{Channel, ChannelMessage};
 use async_trait::async_trait;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, Mutex};
+
+/// Read timeout for IRC — if no data arrives within this duration, the
+/// connection is considered dead. IRC servers typically PING every 60-120s.
+const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Monotonic counter to ensure unique message IDs under burst traffic.
+static MSG_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// IRC over TLS channel.
 ///
@@ -394,7 +402,11 @@ impl Channel for IrcChannel {
 
         loop {
             line.clear();
-            let n = buf_reader.read_line(&mut line).await?;
+            let n = tokio::time::timeout(READ_TIMEOUT, buf_reader.read_line(&mut line))
+                .await
+                .map_err(|_| {
+                    anyhow::anyhow!("IRC read timed out (no data for {READ_TIMEOUT:?})")
+                })??;
             if n == 0 {
                 anyhow::bail!("IRC connection closed by server");
             }
@@ -530,8 +542,9 @@ impl Channel for IrcChannel {
                         sender_nick.to_string()
                     };
 
+                    let seq = MSG_SEQ.fetch_add(1, Ordering::Relaxed);
                     let channel_msg = ChannelMessage {
-                        id: format!("irc_{}", chrono::Utc::now().timestamp_millis()),
+                        id: format!("irc_{}_{seq}", chrono::Utc::now().timestamp_millis()),
                         sender: reply_to,
                         content: format!("{IRC_STYLE_PREFIX}{text}"),
                         channel: "irc".to_string(),
