@@ -730,10 +730,11 @@ fn host_matches_allowlist(host: &str, allowed: &[String]) -> bool {
         if pattern == "*" {
             return true;
         }
-        if pattern.starts_with("*.") {
-            // Wildcard subdomain match
+        if let Some(base) = pattern.strip_prefix("*.") {
+            // Wildcard subdomain match: *.example.com matches
+            // sub.example.com and example.com itself.
             let suffix = &pattern[1..]; // ".example.com"
-            host.ends_with(suffix) || host == &pattern[2..]
+            host.ends_with(suffix) || host == base
         } else {
             // Exact match or subdomain
             host == pattern || host.ends_with(&format!(".{pattern}"))
@@ -792,6 +793,14 @@ mod tests {
         assert!(host_matches_allowlist("sub.example.com", &allowed));
         assert!(host_matches_allowlist("example.com", &allowed));
         assert!(!host_matches_allowlist("other.com", &allowed));
+    }
+
+    #[test]
+    fn host_matches_allowlist_wildcard_edge_cases() {
+        // Malformed pattern "*." should not match everything
+        let allowed = vec!["*.".into()];
+        assert!(!host_matches_allowlist("evil.com", &allowed));
+        assert!(!host_matches_allowlist("anything", &allowed));
     }
 
     #[test]
