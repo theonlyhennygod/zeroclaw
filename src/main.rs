@@ -663,7 +663,7 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
             println!("Open this URL in your browser and authorize access:");
             println!("{authorize_url}");
             println!();
-            println!("Waiting for callback at http://127.0.0.1:1455/auth/callback ...");
+            println!("Waiting for callback at http://localhost:1455/auth/callback ...");
 
             let code = match auth::openai_oauth::receive_loopback_code(
                 &pkce.state,

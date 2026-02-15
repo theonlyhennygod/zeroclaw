@@ -661,12 +661,14 @@ impl Config {
         if config_path.exists() {
             let contents =
                 fs::read_to_string(&config_path).context("Failed to read config file")?;
-            let config: Config =
+            let mut config: Config =
                 toml::from_str(&contents).context("Failed to parse config file")?;
+            config.apply_env_overrides();
             Ok(config)
         } else {
-            let config = Config::default();
+            let mut config = Config::default();
             config.save()?;
+            config.apply_env_overrides();
             Ok(config)
         }
     }
