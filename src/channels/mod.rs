@@ -2,6 +2,7 @@ pub mod cli;
 pub mod discord;
 pub mod email_channel;
 pub mod imessage;
+pub mod irc;
 pub mod matrix;
 pub mod slack;
 pub mod telegram;
@@ -11,6 +12,7 @@ pub mod whatsapp;
 pub use cli::CliChannel;
 pub use discord::DiscordChannel;
 pub use imessage::IMessageChannel;
+pub use irc::IrcChannel;
 pub use matrix::MatrixChannel;
 pub use slack::SlackChannel;
 pub use telegram::TelegramChannel;
@@ -54,6 +56,8 @@ fn spawn_supervised_listener(
                 Ok(()) => {
                     tracing::warn!("Channel {} exited unexpectedly; restarting", ch.name());
                     crate::health::mark_component_error(&component, "listener exited unexpectedly");
+                    // Clean exit — reset backoff since the listener ran successfully
+                    backoff = initial_backoff_secs.max(1);
                 }
                 Err(e) => {
                     tracing::error!("Channel {} error: {e}; restarting", ch.name());
@@ -63,6 +67,7 @@ fn spawn_supervised_listener(
 
             crate::health::bump_component_restart(&component);
             tokio::time::sleep(Duration::from_secs(backoff)).await;
+            // Double backoff AFTER sleeping so first error uses initial_backoff
             backoff = backoff.saturating_mul(2).min(max_backoff);
         }
     })
@@ -241,6 +246,7 @@ pub fn handle_command(command: crate::ChannelCommands, config: &Config) -> Resul
                 ("iMessage", config.channels_config.imessage.is_some()),
                 ("Matrix", config.channels_config.matrix.is_some()),
                 ("WhatsApp", config.channels_config.whatsapp.is_some()),
+                ("IRC", config.channels_config.irc.is_some()),
             ] {
                 println!("  {} {name}", if configured { "✅" } else { "❌" });
             }
@@ -343,6 +349,24 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
                 wa.phone_number_id.clone(),
                 wa.verify_token.clone(),
                 wa.allowed_numbers.clone(),
+            )),
+        ));
+    }
+
+    if let Some(ref irc) = config.channels_config.irc {
+        channels.push((
+            "IRC",
+            Arc::new(IrcChannel::new(
+                irc.server.clone(),
+                irc.port,
+                irc.nickname.clone(),
+                irc.username.clone(),
+                irc.channels.clone(),
+                irc.allowed_users.clone(),
+                irc.server_password.clone(),
+                irc.nickserv_password.clone(),
+                irc.sasl_password.clone(),
+                irc.verify_tls.unwrap_or(true),
             )),
         ));
     }
@@ -511,6 +535,21 @@ pub async fn start_channels(config: Config) -> Result<()> {
             wa.phone_number_id.clone(),
             wa.verify_token.clone(),
             wa.allowed_numbers.clone(),
+        )));
+    }
+
+    if let Some(ref irc) = config.channels_config.irc {
+        channels.push(Arc::new(IrcChannel::new(
+            irc.server.clone(),
+            irc.port,
+            irc.nickname.clone(),
+            irc.username.clone(),
+            irc.channels.clone(),
+            irc.allowed_users.clone(),
+            irc.server_password.clone(),
+            irc.nickserv_password.clone(),
+            irc.sasl_password.clone(),
+            irc.verify_tls.unwrap_or(true),
         )));
     }
 
