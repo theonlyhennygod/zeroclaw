@@ -1,15 +1,18 @@
 use crate::config::Config;
 use crate::memory::{self, Memory, MemoryCategory};
 use crate::observability::{self, Observer, ObserverEvent};
-use crate::providers::{self, Provider};
+use crate::providers::{self, ChatMessage, Provider};
 use crate::runtime;
 use crate::security::SecurityPolicy;
-use crate::tools;
+use crate::tools::{self, Tool};
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
 use std::fmt::Write;
 use std::sync::Arc;
 use std::time::Instant;
+
+/// Maximum agentic tool-use iterations per user message to prevent runaway loops.
+const MAX_TOOL_ITERATIONS: usize = 10;
 
 /// Build context preamble by searching memory for relevant entries
 async fn build_context(mem: &dyn Memory, user_msg: &str) -> String {
@@ -27,6 +30,172 @@ async fn build_context(mem: &dyn Memory, user_msg: &str) -> String {
     }
 
     context
+}
+
+/// Find a tool by name in the registry.
+fn find_tool<'a>(tools: &'a [Box<dyn Tool>], name: &str) -> Option<&'a dyn Tool> {
+    tools.iter().find(|t| t.name() == name).map(|t| t.as_ref())
+}
+
+/// Parse tool calls from an LLM response that uses XML-style function calling.
+///
+/// Expected format (common with system-prompt-guided tool use):
+/// ```text
+/// <tool_call>
+/// {"name": "shell", "arguments": {"command": "ls"}}
+/// </tool_call>
+/// ```
+///
+/// Also supports JSON with `tool_calls` array from OpenAI-format responses.
+fn parse_tool_calls(response: &str) -> (String, Vec<ParsedToolCall>) {
+    let mut text_parts = Vec::new();
+    let mut calls = Vec::new();
+    let mut remaining = response;
+
+    while let Some(start) = remaining.find("<tool_call>") {
+        // Everything before the tag is text
+        let before = &remaining[..start];
+        if !before.trim().is_empty() {
+            text_parts.push(before.trim().to_string());
+        }
+
+        if let Some(end) = remaining[start..].find("</tool_call>") {
+            let inner = &remaining[start + 11..start + end];
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(inner.trim()) {
+                let name = parsed
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let arguments = parsed
+                    .get("arguments")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                calls.push(ParsedToolCall { name, arguments });
+            }
+            remaining = &remaining[start + end + 12..];
+        } else {
+            break;
+        }
+    }
+
+    // Remaining text after last tool call
+    if !remaining.trim().is_empty() {
+        text_parts.push(remaining.trim().to_string());
+    }
+
+    (text_parts.join("\n"), calls)
+}
+
+#[derive(Debug)]
+struct ParsedToolCall {
+    name: String,
+    arguments: serde_json::Value,
+}
+
+/// Execute a single turn of the agent loop: send messages, parse tool calls,
+/// execute tools, and loop until the LLM produces a final text response.
+async fn agent_turn(
+    provider: &dyn Provider,
+    history: &mut Vec<ChatMessage>,
+    tools_registry: &[Box<dyn Tool>],
+    observer: &dyn Observer,
+    model: &str,
+    temperature: f64,
+) -> Result<String> {
+    for _iteration in 0..MAX_TOOL_ITERATIONS {
+        let response = provider
+            .chat_with_history(history, model, temperature)
+            .await?;
+
+        let (text, tool_calls) = parse_tool_calls(&response);
+
+        if tool_calls.is_empty() {
+            // No tool calls — this is the final response
+            history.push(ChatMessage::assistant(&response));
+            return Ok(if text.is_empty() {
+                response
+            } else {
+                text
+            });
+        }
+
+        // Print any text the LLM produced alongside tool calls
+        if !text.is_empty() {
+            print!("{text}");
+        }
+
+        // Execute each tool call and build results
+        let mut tool_results = String::new();
+        for call in &tool_calls {
+            let start = Instant::now();
+            let result = if let Some(tool) = find_tool(tools_registry, &call.name) {
+                match tool.execute(call.arguments.clone()).await {
+                    Ok(r) => {
+                        observer.record_event(&ObserverEvent::ToolCall {
+                            tool: call.name.clone(),
+                            duration: start.elapsed(),
+                            success: r.success,
+                        });
+                        if r.success {
+                            r.output
+                        } else {
+                            format!("Error: {}", r.error.unwrap_or_else(|| r.output))
+                        }
+                    }
+                    Err(e) => {
+                        observer.record_event(&ObserverEvent::ToolCall {
+                            tool: call.name.clone(),
+                            duration: start.elapsed(),
+                            success: false,
+                        });
+                        format!("Error executing {}: {e}", call.name)
+                    }
+                }
+            } else {
+                format!("Unknown tool: {}", call.name)
+            };
+
+            let _ = writeln!(
+                tool_results,
+                "<tool_result name=\"{}\">\n{}\n</tool_result>",
+                call.name, result
+            );
+        }
+
+        // Add assistant message with tool calls + tool results to history
+        history.push(ChatMessage::assistant(&response));
+        history.push(ChatMessage::user(format!(
+            "[Tool results]\n{tool_results}"
+        )));
+    }
+
+    anyhow::bail!("Agent exceeded maximum tool iterations ({MAX_TOOL_ITERATIONS})")
+}
+
+/// Build the tool instruction block for the system prompt so the LLM knows
+/// how to invoke tools.
+fn build_tool_instructions(tools_registry: &[Box<dyn Tool>]) -> String {
+    let mut instructions = String::new();
+    instructions.push_str("\n## Tool Use Protocol\n\n");
+    instructions.push_str("To use a tool, wrap a JSON object in <tool_call></tool_call> tags:\n\n");
+    instructions.push_str("```\n<tool_call>\n{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n</tool_call>\n```\n\n");
+    instructions.push_str("You may use multiple tool calls in a single response. ");
+    instructions.push_str("After tool execution, results appear in <tool_result> tags. ");
+    instructions.push_str("Continue reasoning with the results until you can give a final answer.\n\n");
+    instructions.push_str("### Available Tools\n\n");
+
+    for tool in tools_registry {
+        let _ = writeln!(
+            instructions,
+            "**{}**: {}\nParameters: `{}`\n",
+            tool.name(),
+            tool.description(),
+            tool.parameters_schema()
+        );
+    }
+
+    instructions
 }
 
 #[allow(clippy::too_many_lines)]
@@ -61,7 +230,7 @@ pub async fn run(
     } else {
         None
     };
-    let _tools = tools::all_tools_with_runtime(
+    let tools_registry = tools::all_tools_with_runtime(
         &security,
         runtime,
         mem.clone(),
@@ -133,13 +302,16 @@ pub async fn run(
             "Execute actions on 1000+ apps via Composio (Gmail, Notion, GitHub, Slack, etc.). Use action='list' to discover, 'execute' to run, 'connect' to OAuth.",
         ));
     }
-    let system_prompt = crate::channels::build_system_prompt(
+    let mut system_prompt = crate::channels::build_system_prompt(
         &config.workspace_dir,
         model_name,
         &tool_descs,
         &skills,
         Some(&config.identity),
     );
+
+    // Append structured tool-use instructions with schemas
+    system_prompt.push_str(&build_tool_instructions(&tools_registry));
 
     // ── Execute ──────────────────────────────────────────────────
     let start = Instant::now();
@@ -160,9 +332,20 @@ pub async fn run(
             format!("{context}{msg}")
         };
 
-        let response = provider
-            .chat_with_system(Some(&system_prompt), &enriched, model_name, temperature)
-            .await?;
+        let mut history = vec![
+            ChatMessage::system(&system_prompt),
+            ChatMessage::user(&enriched),
+        ];
+
+        let response = agent_turn(
+            provider.as_ref(),
+            &mut history,
+            &tools_registry,
+            observer.as_ref(),
+            model_name,
+            temperature,
+        )
+        .await?;
         println!("{response}");
 
         // Auto-save assistant response to daily log
@@ -184,6 +367,9 @@ pub async fn run(
             let _ = crate::channels::Channel::listen(&cli, tx).await;
         });
 
+        // Persistent conversation history across turns
+        let mut history = vec![ChatMessage::system(&system_prompt)];
+
         while let Some(msg) = rx.recv().await {
             // Auto-save conversation turns
             if config.memory.auto_save {
@@ -200,9 +386,17 @@ pub async fn run(
                 format!("{context}{}", msg.content)
             };
 
-            let response = provider
-                .chat_with_system(Some(&system_prompt), &enriched, model_name, temperature)
-                .await?;
+            history.push(ChatMessage::user(&enriched));
+
+            let response = agent_turn(
+                provider.as_ref(),
+                &mut history,
+                &tools_registry,
+                observer.as_ref(),
+                model_name,
+                temperature,
+            )
+            .await?;
             println!("\n{response}\n");
 
             if config.memory.auto_save {
@@ -223,4 +417,92 @@ pub async fn run(
     });
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_tool_calls_extracts_single_call() {
+        let response = r#"Let me check that.
+<tool_call>
+{"name": "shell", "arguments": {"command": "ls -la"}}
+</tool_call>"#;
+
+        let (text, calls) = parse_tool_calls(response);
+        assert_eq!(text, "Let me check that.");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "shell");
+        assert_eq!(
+            calls[0].arguments.get("command").unwrap().as_str().unwrap(),
+            "ls -la"
+        );
+    }
+
+    #[test]
+    fn parse_tool_calls_extracts_multiple_calls() {
+        let response = r#"<tool_call>
+{"name": "file_read", "arguments": {"path": "a.txt"}}
+</tool_call>
+<tool_call>
+{"name": "file_read", "arguments": {"path": "b.txt"}}
+</tool_call>"#;
+
+        let (_, calls) = parse_tool_calls(response);
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].name, "file_read");
+        assert_eq!(calls[1].name, "file_read");
+    }
+
+    #[test]
+    fn parse_tool_calls_returns_text_only_when_no_calls() {
+        let response = "Just a normal response with no tools.";
+        let (text, calls) = parse_tool_calls(response);
+        assert_eq!(text, "Just a normal response with no tools.");
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn parse_tool_calls_handles_malformed_json() {
+        let response = r#"<tool_call>
+not valid json
+</tool_call>
+Some text after."#;
+
+        let (text, calls) = parse_tool_calls(response);
+        assert!(calls.is_empty());
+        assert!(text.contains("Some text after."));
+    }
+
+    #[test]
+    fn parse_tool_calls_text_before_and_after() {
+        let response = r#"Before text.
+<tool_call>
+{"name": "shell", "arguments": {"command": "echo hi"}}
+</tool_call>
+After text."#;
+
+        let (text, calls) = parse_tool_calls(response);
+        assert!(text.contains("Before text."));
+        assert!(text.contains("After text."));
+        assert_eq!(calls.len(), 1);
+    }
+
+    #[test]
+    fn build_tool_instructions_includes_all_tools() {
+        use crate::security::SecurityPolicy;
+        let security = Arc::new(SecurityPolicy::from_config(
+            &crate::config::AutonomyConfig::default(),
+            std::path::Path::new("/tmp"),
+        ));
+        let tools = tools::default_tools(security);
+        let instructions = build_tool_instructions(&tools);
+
+        assert!(instructions.contains("## Tool Use Protocol"));
+        assert!(instructions.contains("<tool_call>"));
+        assert!(instructions.contains("shell"));
+        assert!(instructions.contains("file_read"));
+        assert!(instructions.contains("file_write"));
+    }
 }

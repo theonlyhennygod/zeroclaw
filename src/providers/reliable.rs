@@ -1,3 +1,4 @@
+use super::traits::ChatMessage;
 use super::Provider;
 use async_trait::async_trait;
 use std::time::Duration;
@@ -117,6 +118,47 @@ impl Provider for ReliableProvider {
             }
 
             tracing::warn!(provider = provider_name, "Switching to fallback provider");
+        }
+
+        anyhow::bail!("All providers failed. Attempts:\n{}", failures.join("\n"))
+    }
+
+    async fn chat_with_history(
+        &self,
+        messages: &[ChatMessage],
+        model: &str,
+        temperature: f64,
+    ) -> anyhow::Result<String> {
+        let mut failures = Vec::new();
+
+        for (provider_name, provider) in &self.providers {
+            let mut backoff_ms = self.base_backoff_ms;
+
+            for attempt in 0..=self.max_retries {
+                match provider
+                    .chat_with_history(messages, model, temperature)
+                    .await
+                {
+                    Ok(resp) => return Ok(resp),
+                    Err(e) => {
+                        let non_retryable = is_non_retryable(&e);
+                        failures.push(format!(
+                            "{provider_name} attempt {}/{}: {e}",
+                            attempt + 1,
+                            self.max_retries + 1
+                        ));
+
+                        if non_retryable {
+                            break;
+                        }
+
+                        if attempt < self.max_retries {
+                            tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                            backoff_ms = (backoff_ms.saturating_mul(2)).min(10_000);
+                        }
+                    }
+                }
+            }
         }
 
         anyhow::bail!("All providers failed. Attempts:\n{}", failures.join("\n"))

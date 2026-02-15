@@ -2,7 +2,7 @@
 //! Most LLM APIs follow the same `/v1/chat/completions` format.
 //! This module provides a single implementation that works for all of them.
 
-use crate::providers::traits::Provider;
+use crate::providers::traits::{ChatMessage, Provider};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -81,7 +81,7 @@ struct Message {
 }
 
 #[derive(Debug, Deserialize)]
-struct ChatResponse {
+struct ApiChatResponse {
     choices: Vec<Choice>,
 }
 
@@ -280,7 +280,55 @@ impl Provider for OpenAiCompatibleProvider {
             anyhow::bail!("{} API error: {error}", self.name);
         }
 
-        let chat_response: ChatResponse = response.json().await?;
+        let chat_response: ApiChatResponse = response.json().await?;
+
+        chat_response
+            .choices
+            .into_iter()
+            .next()
+            .map(|c| c.message.content)
+            .ok_or_else(|| anyhow::anyhow!("No response from {}", self.name))
+    }
+
+    async fn chat_with_history(
+        &self,
+        messages: &[ChatMessage],
+        model: &str,
+        temperature: f64,
+    ) -> anyhow::Result<String> {
+        let api_key = self.api_key.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "{} API key not set. Run `zeroclaw onboard` or set the appropriate env var.",
+                self.name
+            )
+        })?;
+
+        let api_messages: Vec<Message> = messages
+            .iter()
+            .map(|m| Message {
+                role: m.role.clone(),
+                content: m.content.clone(),
+            })
+            .collect();
+
+        let request = ChatRequest {
+            model: model.to_string(),
+            messages: api_messages,
+            temperature,
+        };
+
+        let url = self.chat_completions_url();
+        let response = self
+            .apply_auth_header(self.client.post(&url).json(&request), api_key)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let error = response.text().await?;
+            anyhow::bail!("{} API error: {error}", self.name);
+        }
+
+        let chat_response: ApiChatResponse = response.json().await?;
 
         chat_response
             .choices
@@ -357,14 +405,14 @@ mod tests {
     #[test]
     fn response_deserializes() {
         let json = r#"{"choices":[{"message":{"content":"Hello from Venice!"}}]}"#;
-        let resp: ChatResponse = serde_json::from_str(json).unwrap();
+        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.choices[0].message.content, "Hello from Venice!");
     }
 
     #[test]
     fn response_empty_choices() {
         let json = r#"{"choices":[]}"#;
-        let resp: ChatResponse = serde_json::from_str(json).unwrap();
+        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
         assert!(resp.choices.is_empty());
     }
 
