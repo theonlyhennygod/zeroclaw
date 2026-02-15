@@ -63,6 +63,12 @@ pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<
         "qianfan" | "baidu" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Qianfan", "https://aip.baidubce.com", api_key, AuthStyle::Bearer,
         ))),
+        "gemini" | "google" => Ok(Box::new(OpenAiCompatibleProvider::new(
+            "Google Gemini",
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            api_key,
+            AuthStyle::Bearer,
+        ))),
 
         // ── Extended ecosystem (community favorites) ─────────
         "groq" => Ok(Box::new(OpenAiCompatibleProvider::new(
@@ -240,6 +246,12 @@ mod tests {
         assert!(create_provider("baidu", Some("key")).is_ok());
     }
 
+    #[test]
+    fn factory_gemini() {
+        assert!(create_provider("gemini", Some("key")).is_ok());
+        assert!(create_provider("google", Some("key")).is_ok());
+    }
+
     // ── Extended ecosystem ───────────────────────────────────
 
     #[test]
@@ -378,6 +390,7 @@ mod tests {
             "minimax",
             "bedrock",
             "qianfan",
+            "gemini",
             "groq",
             "mistral",
             "xai",
