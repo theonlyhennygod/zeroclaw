@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, BufWriter};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::Mutex;
 use tracing::debug;
@@ -62,9 +62,12 @@ impl McpClientTool {
     /// The command and arguments come from the user's config file, so
     /// we trust that the configured binary is intentional.
     async fn ensure_server(&self, name: &str) -> anyhow::Result<()> {
-        let mut servers = self.servers.lock().await;
-        if servers.contains_key(name) {
-            return Ok(());
+        // Fast path: already running (short lock)
+        {
+            let servers = self.servers.lock().await;
+            if servers.contains_key(name) {
+                return Ok(());
+            }
         }
 
         let config = self
@@ -74,6 +77,7 @@ impl McpClientTool {
             .ok_or_else(|| anyhow::anyhow!("MCP server '{name}' not configured"))?
             .clone();
 
+        // Heavy init work happens outside the lock so other servers stay accessible
         let mut cmd = Command::new(&config.command);
         cmd.kill_on_drop(true)
             .args(&config.args)
@@ -105,13 +109,10 @@ impl McpClientTool {
                 let mut line = String::new();
                 loop {
                     line.clear();
-                    match reader.read_line(&mut line).await {
+                    let mut limited = (&mut reader).take(MAX_LINE_BYTES as u64);
+                    match limited.read_line(&mut line).await {
                         Ok(0) | Err(_) => break,
                         Ok(_) => {
-                            if line.len() > MAX_LINE_BYTES {
-                                debug!(server = %tag, "stderr line exceeded max size, skipping");
-                                continue;
-                            }
                             debug!(server = %tag, "{}", line.trim());
                         }
                     }
@@ -144,7 +145,10 @@ impl McpClientTool {
         .map_err(|_| anyhow::anyhow!("MCP server '{name}' tool discovery timed out"))??;
 
         server.tools = tools;
-        servers.insert(name.to_string(), Arc::new(Mutex::new(server)));
+
+        // Re-acquire lock to insert; if another caller raced, their server wins
+        let mut servers = self.servers.lock().await;
+        servers.entry(name.to_string()).or_insert(Arc::new(Mutex::new(server)));
         Ok(())
     }
 
@@ -475,12 +479,10 @@ async fn read_response(
     let mut notification_count = 0usize;
     loop {
         line.clear();
-        let n = stdout.read_line(&mut line).await?;
+        let mut limited = (&mut *stdout).take(MAX_LINE_BYTES as u64);
+        let n = limited.read_line(&mut line).await?;
         if n == 0 {
             anyhow::bail!("MCP server closed connection unexpectedly");
-        }
-        if line.len() > MAX_LINE_BYTES {
-            anyhow::bail!("Response line exceeds maximum size");
         }
         let trimmed = line.trim();
         if trimmed.is_empty() {
