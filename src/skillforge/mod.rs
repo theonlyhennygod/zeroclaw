@@ -20,7 +20,7 @@ use self::scout::{GitHubScout, Scout, ScoutResult, ScoutSource};
 // Configuration
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SkillForgeConfig {
     #[serde(default)]
     pub enabled: bool,
@@ -67,6 +67,23 @@ impl Default for SkillForgeConfig {
             github_token: None,
             output_dir: default_output_dir(),
         }
+    }
+}
+
+impl std::fmt::Debug for SkillForgeConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SkillForgeConfig")
+            .field("enabled", &self.enabled)
+            .field("auto_integrate", &self.auto_integrate)
+            .field("sources", &self.sources)
+            .field("scan_interval_hours", &self.scan_interval_hours)
+            .field("min_score", &self.min_score)
+            .field(
+                "github_token",
+                &self.github_token.as_ref().map(|_| "***"),
+            )
+            .field("output_dir", &self.output_dir)
+            .finish()
     }
 }
 
@@ -161,11 +178,22 @@ impl SkillForge {
             match res.recommendation {
                 Recommendation::Auto => {
                     if self.config.auto_integrate {
-                        self.integrator
-                            .integrate(&res.candidate)
-                            .context("Integration failed")?;
+                        match self.integrator.integrate(&res.candidate) {
+                            Ok(_) => {
+                                auto_integrated += 1;
+                            }
+                            Err(e) => {
+                                warn!(
+                                    skill = res.candidate.name.as_str(),
+                                    error = %e,
+                                    "Integration failed for candidate, continuing"
+                                );
+                            }
+                        }
+                    } else {
+                        // Count as would-be auto but not actually integrated
+                        manual_review += 1;
                     }
-                    auto_integrated += 1;
                 }
                 Recommendation::Manual => {
                     manual_review += 1;
