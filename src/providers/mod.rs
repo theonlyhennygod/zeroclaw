@@ -110,18 +110,17 @@ pub async fn api_error(provider: &str, response: reqwest::Response) -> anyhow::E
 }
 
 fn non_empty_env(var: &str) -> Option<String> {
-    std::env::var(var)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+    std::env::var(var).ok()
 }
 
-/// Resolve provider credential from env and config value.
-///
-/// Priority:
-/// 1. Provider-specific env vars (left-to-right)
-/// 2. Shared config `api_key` passed in
-pub fn resolve_api_key(provider: &str, config_api_key: Option<&str>) -> Option<String> {
+fn resolve_api_key_with_lookup<F>(
+    provider: &str,
+    config_api_key: Option<&str>,
+    mut lookup: F,
+) -> Option<String>
+where
+    F: FnMut(&str) -> Option<String>,
+{
     let env_vars: &[&str] = match provider {
         "openrouter" => &["OPENROUTER_API_KEY"],
         "openai" => &["OPENAI_API_KEY"],
@@ -136,7 +135,10 @@ pub fn resolve_api_key(provider: &str, config_api_key: Option<&str>) -> Option<S
     };
 
     for var in env_vars {
-        if let Some(value) = non_empty_env(var) {
+        if let Some(value) = lookup(var)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+        {
             return Some(value);
         }
     }
@@ -145,6 +147,15 @@ pub fn resolve_api_key(provider: &str, config_api_key: Option<&str>) -> Option<S
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToString::to_string)
+}
+
+/// Resolve provider credential from env and config value.
+///
+/// Priority:
+/// 1. Provider-specific env vars (left-to-right)
+/// 2. Shared config `api_key` passed in
+pub fn resolve_api_key(provider: &str, config_api_key: Option<&str>) -> Option<String> {
+    resolve_api_key_with_lookup(provider, config_api_key, non_empty_env)
 }
 
 /// Factory: create the right provider from config
@@ -168,7 +179,8 @@ pub fn create_provider_with_options(
             resolved_key.as_deref(),
         ))),
         "anthropic" => Ok(Box::new(anthropic::AnthropicProvider::new_with_options(
-            api_key, options,
+            resolved_key.as_deref(),
+            options,
         ))),
         "openai" => Ok(Box::new(openai::OpenAiProvider::new(resolved_key.as_deref()))),
         "openai-codex" | "openai_codex" | "codex" => {
@@ -734,22 +746,19 @@ mod tests {
 
     #[test]
     fn resolve_api_key_prefers_anthropic_auth_token() {
-        std::env::set_var("ANTHROPIC_AUTH_TOKEN", "token-auth");
-        std::env::set_var("ANTHROPIC_OAUTH_TOKEN", "token-oauth");
-        std::env::set_var("ANTHROPIC_API_KEY", "token-api");
-
-        let resolved = resolve_api_key("anthropic", Some("config-key"));
+        let resolved =
+            resolve_api_key_with_lookup("anthropic", Some("config-key"), |name| match name {
+                "ANTHROPIC_AUTH_TOKEN" => Some("token-auth".to_string()),
+                "ANTHROPIC_OAUTH_TOKEN" => Some("token-oauth".to_string()),
+                "ANTHROPIC_API_KEY" => Some("token-api".to_string()),
+                _ => None,
+            });
         assert_eq!(resolved.as_deref(), Some("token-auth"));
-
-        std::env::remove_var("ANTHROPIC_AUTH_TOKEN");
-        std::env::remove_var("ANTHROPIC_OAUTH_TOKEN");
-        std::env::remove_var("ANTHROPIC_API_KEY");
     }
 
     #[test]
     fn resolve_api_key_falls_back_to_config() {
-        std::env::remove_var("OPENAI_API_KEY");
-        let resolved = resolve_api_key("openai", Some("config-key"));
+        let resolved = resolve_api_key_with_lookup("openai", Some("config-key"), |_| None);
         assert_eq!(resolved.as_deref(), Some("config-key"));
     }
 }

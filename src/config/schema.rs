@@ -89,7 +89,7 @@ impl Default for IdentityConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatewayConfig {
-    /// Gateway port (default: 8080)
+    /// Gateway port (default: 3000)
     #[serde(default = "default_gateway_port")]
     pub port: u16,
     /// Gateway host (default: 127.0.0.1)
@@ -1601,7 +1601,7 @@ default_temperature = 0.7
     fn env_override_temperature_out_of_range_ignored() {
         // Clean up any leftover env vars from other tests
         std::env::remove_var("ZEROCLAW_TEMPERATURE");
-        
+
         let mut config = Config::default();
         let original_temp = config.default_temperature;
 

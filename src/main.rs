@@ -402,9 +402,7 @@ async fn main() -> Result<()> {
             model,
             temperature,
             auth_profile,
-        } => {
-            agent::run(config, message, provider, model, temperature, auth_profile).await
-        }
+        } => agent::run(config, message, provider, model, temperature, auth_profile).await,
 
         Commands::Gateway { port, host } => {
             if port == 0 {
@@ -630,9 +628,10 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
 
                         let token_set =
                             auth::openai_oauth::poll_device_code_tokens(&client, &device).await?;
-                        let account_id =
-                            auth::openai_oauth::extract_account_id_from_jwt(&token_set.access_token)
-                                .or_else(|| Some("unknown".to_string()));
+                        let account_id = auth::openai_oauth::extract_account_id_from_jwt(
+                            &token_set.access_token,
+                        )
+                        .or_else(|| Some("unknown".to_string()));
 
                         let saved = auth_service
                             .store_openai_tokens(&profile, token_set, account_id, true)?;
@@ -681,9 +680,11 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
                 }
             };
 
-            let token_set = auth::openai_oauth::exchange_code_for_tokens(&client, &code, &pkce).await?;
-            let account_id = auth::openai_oauth::extract_account_id_from_jwt(&token_set.access_token)
-                .or_else(|| Some("unknown".to_string()));
+            let token_set =
+                auth::openai_oauth::exchange_code_for_tokens(&client, &code, &pkce).await?;
+            let account_id =
+                auth::openai_oauth::extract_account_id_from_jwt(&token_set.access_token)
+                    .or_else(|| Some("unknown".to_string()));
 
             let saved = auth_service.store_openai_tokens(&profile, token_set, account_id, true)?;
             clear_pending_openai_login(config);
@@ -722,8 +723,10 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
                 None => read_plain_input("Paste redirect URL or OAuth code")?,
             };
 
-            let code =
-                auth::openai_oauth::parse_code_from_redirect(&redirect_input, Some(&pending.state))?;
+            let code = auth::openai_oauth::parse_code_from_redirect(
+                &redirect_input,
+                Some(&pending.state),
+            )?;
 
             let pkce = auth::openai_oauth::PkceState {
                 code_verifier: pending.code_verifier.clone(),
@@ -732,9 +735,11 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
             };
 
             let client = reqwest::Client::new();
-            let token_set = auth::openai_oauth::exchange_code_for_tokens(&client, &code, &pkce).await?;
-            let account_id = auth::openai_oauth::extract_account_id_from_jwt(&token_set.access_token)
-                .or_else(|| Some("unknown".to_string()));
+            let token_set =
+                auth::openai_oauth::exchange_code_for_tokens(&client, &code, &pkce).await?;
+            let account_id =
+                auth::openai_oauth::extract_account_id_from_jwt(&token_set.access_token)
+                    .or_else(|| Some("unknown".to_string()));
 
             let saved = auth_service.store_openai_tokens(&profile, token_set, account_id, true)?;
             clear_pending_openai_login(config);
@@ -759,8 +764,7 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
                 bail!("Token cannot be empty");
             }
 
-            let kind =
-                auth::anthropic_token::detect_auth_kind(&token, auth_kind.as_deref());
+            let kind = auth::anthropic_token::detect_auth_kind(&token, auth_kind.as_deref());
             let mut metadata = std::collections::HashMap::new();
             metadata.insert(
                 "auth_kind".to_string(),
@@ -848,7 +852,6 @@ async fn handle_auth_command(auth_command: AuthCommands, config: &Config) -> Res
                     .get(&profile.provider)
                     .is_some_and(|active_id| active_id == id);
                 let marker = if active { "*" } else { " " };
-                let _ = profile;
                 println!("{marker} {id}");
             }
 
