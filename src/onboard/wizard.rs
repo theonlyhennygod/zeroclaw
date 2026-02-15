@@ -591,8 +591,10 @@ fn setup_provider() -> Result<(String, String, String)> {
             "perplexity" => "https://www.perplexity.ai/settings/api",
             "xai" => "https://console.x.ai",
             "cohere" => "https://dashboard.cohere.com/api-keys",
-            "moonshot" | "moonshot-cn" => "https://platform.moonshot.ai/console/api-keys",
-            "kimi-coding" => "https://kimi.moonshot.cn",
+            "moonshot" | "moonshot-cn" | "moonshotai" | "moonshotai-cn" => {
+                "https://platform.moonshot.ai/console/api-keys"
+            }
+            "kimi-coding" | "kimi-for-coding" | "kimi" => "https://kimi.moonshot.cn",
             "minimax" => "https://www.minimaxi.com/user-center/basic-information",
             "vercel" => "https://vercel.com/account/tokens",
             "cloudflare" => "https://dash.cloudflare.com/profile/api-tokens",
