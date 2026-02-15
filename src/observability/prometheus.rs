@@ -1,6 +1,6 @@
 use super::traits::{Observer, ObserverEvent, ObserverMetric};
-use prometheus_client::encoding::EncodeLabelSet;
 use prometheus_client::encoding::text::encode;
+use prometheus_client::encoding::EncodeLabelSet;
 use prometheus_client::metrics::counter::Counter;
 use prometheus_client::metrics::family::Family;
 use prometheus_client::metrics::gauge::Gauge;
@@ -47,7 +47,9 @@ pub struct PrometheusObserver {
     queue_depth: Gauge,
 }
 
-const LATENCY_BUCKETS: [f64; 11] = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0];
+const LATENCY_BUCKETS: [f64; 11] = [
+    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+];
 const DURATION_BUCKETS: [f64; 11] = [0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0];
 const TOOL_BUCKETS: [f64; 9] = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0];
 
@@ -56,10 +58,18 @@ impl PrometheusObserver {
         let mut registry = Registry::default();
 
         let agent_starts = Family::<AgentLabels, Counter>::default();
-        registry.register("zeroclaw_agent_starts", "Agent start events", agent_starts.clone());
+        registry.register(
+            "zeroclaw_agent_starts",
+            "Agent start events",
+            agent_starts.clone(),
+        );
 
         let agent_completions = Counter::default();
-        registry.register("zeroclaw_agent_completions", "Agent completions", agent_completions.clone());
+        registry.register(
+            "zeroclaw_agent_completions",
+            "Agent completions",
+            agent_completions.clone(),
+        );
 
         let agent_duration_seconds = Histogram::new(DURATION_BUCKETS.into_iter());
         registry.register(
@@ -69,7 +79,11 @@ impl PrometheusObserver {
         );
 
         let tool_calls = Family::<ToolLabels, Counter>::default();
-        registry.register("zeroclaw_tool_calls", "Tool call events", tool_calls.clone());
+        registry.register(
+            "zeroclaw_tool_calls",
+            "Tool call events",
+            tool_calls.clone(),
+        );
 
         let tool_duration_seconds = Histogram::new(TOOL_BUCKETS.into_iter());
         registry.register(
@@ -79,13 +93,25 @@ impl PrometheusObserver {
         );
 
         let channel_messages = Family::<ChannelLabels, Counter>::default();
-        registry.register("zeroclaw_channel_messages", "Channel message events", channel_messages.clone());
+        registry.register(
+            "zeroclaw_channel_messages",
+            "Channel message events",
+            channel_messages.clone(),
+        );
 
         let heartbeat_ticks = Counter::default();
-        registry.register("zeroclaw_heartbeat_ticks", "Heartbeat tick count", heartbeat_ticks.clone());
+        registry.register(
+            "zeroclaw_heartbeat_ticks",
+            "Heartbeat tick count",
+            heartbeat_ticks.clone(),
+        );
 
         let errors = Family::<ErrorLabels, Counter>::default();
-        registry.register("zeroclaw_errors", "Error events by component", errors.clone());
+        registry.register(
+            "zeroclaw_errors",
+            "Error events by component",
+            errors.clone(),
+        );
 
         let request_latency_seconds = Histogram::new(LATENCY_BUCKETS.into_iter());
         registry.register(
@@ -95,13 +121,25 @@ impl PrometheusObserver {
         );
 
         let tokens_used_total = Counter::default();
-        registry.register("zeroclaw_tokens_used_total", "Total tokens consumed", tokens_used_total.clone());
+        registry.register(
+            "zeroclaw_tokens_used_total",
+            "Total tokens consumed",
+            tokens_used_total.clone(),
+        );
 
         let active_sessions: Gauge = Gauge::default();
-        registry.register("zeroclaw_active_sessions", "Active session count", active_sessions.clone());
+        registry.register(
+            "zeroclaw_active_sessions",
+            "Active session count",
+            active_sessions.clone(),
+        );
 
         let queue_depth: Gauge = Gauge::default();
-        registry.register("zeroclaw_queue_depth", "Current queue depth", queue_depth.clone());
+        registry.register(
+            "zeroclaw_queue_depth",
+            "Current queue depth",
+            queue_depth.clone(),
+        );
 
         Self {
             registry: Mutex::new(registry),
@@ -199,8 +237,7 @@ impl Observer for PrometheusObserver {
                     .set(i64::try_from(*s).unwrap_or(i64::MAX));
             }
             ObserverMetric::QueueDepth(d) => {
-                self.queue_depth
-                    .set(i64::try_from(*d).unwrap_or(i64::MAX));
+                self.queue_depth.set(i64::try_from(*d).unwrap_or(i64::MAX));
             }
         }
     }

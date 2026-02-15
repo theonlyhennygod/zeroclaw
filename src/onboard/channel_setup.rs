@@ -2,9 +2,7 @@ use anyhow::Result;
 use console::style;
 use dialoguer::{Input, Select};
 
-use crate::config::{
-    ChannelsConfig, DiscordConfig, IMessageConfig, SlackConfig, TelegramConfig,
-};
+use crate::config::{ChannelsConfig, DiscordConfig, IMessageConfig, SlackConfig, TelegramConfig};
 use crate::onboard::channel_setup_integrations::{
     setup_matrix_channel, setup_webhook_channel, setup_whatsapp_channel,
 };
@@ -185,7 +183,9 @@ fn setup_telegram_channel(config: &mut ChannelsConfig) -> Result<()> {
         }
     }
 
-    print_bullet("Allowlist your own Telegram identity first (recommended for secure + fast setup).");
+    print_bullet(
+        "Allowlist your own Telegram identity first (recommended for secure + fast setup).",
+    );
     print_bullet(
         "Use your @username without '@' (example: argenis), or your numeric Telegram user ID.",
     );

@@ -102,7 +102,11 @@ pub(crate) fn setup_tunnel() -> Result<TunnelConfig> {
                     provider: "ngrok".into(),
                     ngrok: Some(NgrokTunnelConfig {
                         auth_token,
-                        domain: if domain.is_empty() { None } else { Some(domain) },
+                        domain: if domain.is_empty() {
+                            None
+                        } else {
+                            Some(domain)
+                        },
                     }),
                     ..TunnelConfig::default()
                 }
@@ -113,7 +117,9 @@ pub(crate) fn setup_tunnel() -> Result<TunnelConfig> {
             print_bullet("Enter the command to start your tunnel.");
             print_bullet("Use {port} and {host} as placeholders.");
             print_bullet("Example: bore local {port} --to bore.pub");
-            let cmd: String = Input::new().with_prompt("  Start command").interact_text()?;
+            let cmd: String = Input::new()
+                .with_prompt("  Start command")
+                .interact_text()?;
             if cmd.trim().is_empty() {
                 println!("  {} Skipped", style("→").dim());
                 TunnelConfig::default()

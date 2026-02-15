@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use super::traits;
 use super::{
-    DiscordChannel, IMessageChannel, MatrixChannel, SlackChannel, TelegramChannel,
-    WhatsAppChannel, Channel,
+    Channel, DiscordChannel, IMessageChannel, MatrixChannel, SlackChannel, TelegramChannel,
+    WhatsAppChannel,
 };
 
 /// Maximum characters per injected workspace file (matches `OpenClaw` default).

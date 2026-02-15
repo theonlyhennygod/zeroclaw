@@ -12,9 +12,7 @@ pub use cli::CliChannel;
 pub use discord::DiscordChannel;
 pub use imessage::IMessageChannel;
 pub use matrix::MatrixChannel;
-pub use orchestration::{
-    build_system_prompt, doctor_channels, start_channels,
-};
+pub use orchestration::{build_system_prompt, doctor_channels, start_channels};
 pub use slack::SlackChannel;
 pub use telegram::TelegramChannel;
 pub use traits::Channel;
@@ -63,4 +61,3 @@ pub fn handle_command(command: super::ChannelCommands, config: &Config) -> Resul
         }
     }
 }
-

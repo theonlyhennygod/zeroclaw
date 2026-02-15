@@ -222,7 +222,10 @@ pub(crate) fn setup_provider() -> Result<(String, String, String)> {
             ("deepseek-chat", "DeepSeek Chat (V3, recommended)"),
             ("deepseek-reasoner", "DeepSeek Reasoner (R1)"),
         ],
-        "xai" => vec![("grok-3", "Grok 3 (flagship)"), ("grok-3-mini", "Grok 3 Mini (fast)")],
+        "xai" => vec![
+            ("grok-3", "Grok 3 (flagship)"),
+            ("grok-3-mini", "Grok 3 Mini (fast)"),
+        ],
         "perplexity" => vec![
             ("sonar-pro", "Sonar Pro (search + reasoning)"),
             ("sonar", "Sonar (search, fast)"),
@@ -248,10 +251,22 @@ pub(crate) fn setup_provider() -> Result<(String, String, String)> {
             ),
             ("mistralai/Mixtral-8x22B-Instruct-v0.1", "Mixtral 8x22B"),
         ],
-        "cohere" => vec![("command-r-plus", "Command R+ (flagship)"), ("command-r", "Command R (fast)")],
-        "moonshot" => vec![("moonshot-v1-128k", "Moonshot V1 128K"), ("moonshot-v1-32k", "Moonshot V1 32K")],
-        "glm" => vec![("glm-4-plus", "GLM-4 Plus (flagship)"), ("glm-4-flash", "GLM-4 Flash (fast)")],
-        "minimax" => vec![("abab6.5s-chat", "ABAB 6.5s Chat"), ("abab6.5-chat", "ABAB 6.5 Chat")],
+        "cohere" => vec![
+            ("command-r-plus", "Command R+ (flagship)"),
+            ("command-r", "Command R (fast)"),
+        ],
+        "moonshot" => vec![
+            ("moonshot-v1-128k", "Moonshot V1 128K"),
+            ("moonshot-v1-32k", "Moonshot V1 32K"),
+        ],
+        "glm" => vec![
+            ("glm-4-plus", "GLM-4 Plus (flagship)"),
+            ("glm-4-flash", "GLM-4 Flash (fast)"),
+        ],
+        "minimax" => vec![
+            ("abab6.5s-chat", "ABAB 6.5s Chat"),
+            ("abab6.5-chat", "ABAB 6.5 Chat"),
+        ],
         "ollama" => vec![
             ("llama3.2", "Llama 3.2 (recommended local)"),
             ("mistral", "Mistral 7B"),

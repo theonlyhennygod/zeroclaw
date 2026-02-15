@@ -141,7 +141,7 @@ pub(crate) fn print_summary(config: &Config) {
         let env_var = provider_env_var(config.default_provider.as_deref().unwrap_or("openrouter"));
         println!(
             "    {} Set your API key:",
-            style(format!("{step}.")) .cyan().bold()
+            style(format!("{step}.")).cyan().bold()
         );
         println!(
             "       {}",
@@ -154,7 +154,7 @@ pub(crate) fn print_summary(config: &Config) {
     if has_channels {
         println!(
             "    {} {} (connected channels → AI → reply):",
-            style(format!("{step}.")) .cyan().bold(),
+            style(format!("{step}.")).cyan().bold(),
             style("Launch your channels").white().bold()
         );
         println!("       {}", style("zeroclaw channel start").yellow());
@@ -164,7 +164,7 @@ pub(crate) fn print_summary(config: &Config) {
 
     println!(
         "    {} Send a quick message:",
-        style(format!("{step}.")) .cyan().bold()
+        style(format!("{step}.")).cyan().bold()
     );
     println!(
         "       {}",
@@ -175,7 +175,7 @@ pub(crate) fn print_summary(config: &Config) {
 
     println!(
         "    {} Start interactive CLI mode:",
-        style(format!("{step}.")) .cyan().bold()
+        style(format!("{step}.")).cyan().bold()
     );
     println!("       {}", style("zeroclaw agent").yellow());
     println!();
@@ -183,7 +183,7 @@ pub(crate) fn print_summary(config: &Config) {
 
     println!(
         "    {} Check full status:",
-        style(format!("{step}.")) .cyan().bold()
+        style(format!("{step}.")).cyan().bold()
     );
     println!("       {}", style("zeroclaw status").yellow());
 

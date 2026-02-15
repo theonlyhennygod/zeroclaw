@@ -124,7 +124,10 @@ pub(crate) fn setup_whatsapp_channel(config: &mut ChannelsConfig) -> Result<()> 
 
     print!("  {} Testing connection... ", style("⏳").dim());
     let client = reqwest::blocking::Client::new();
-    let url = format!("https://graph.facebook.com/v18.0/{}", phone_number_id.trim());
+    let url = format!(
+        "https://graph.facebook.com/v18.0/{}",
+        phone_number_id.trim()
+    );
     match client
         .get(&url)
         .header("Authorization", format!("Bearer {}", access_token.trim()))
@@ -186,7 +189,11 @@ pub(crate) fn setup_webhook_channel(config: &mut ChannelsConfig) -> Result<()> {
 
     config.webhook = Some(WebhookConfig {
         port: port.parse().unwrap_or(8080),
-        secret: if secret.is_empty() { None } else { Some(secret) },
+        secret: if secret.is_empty() {
+            None
+        } else {
+            Some(secret)
+        },
     });
     println!(
         "  {} Webhook on port {}",

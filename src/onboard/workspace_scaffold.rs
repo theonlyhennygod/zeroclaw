@@ -268,7 +268,11 @@ pub(crate) fn scaffold_workspace(workspace_dir: &Path, ctx: &ProjectContext) -> 
         println!("  {}", style(format!("  ├── {dir}/")).dim());
     }
     for (i, (filename, _)) in files.iter().enumerate() {
-        let prefix = if i == files.len() - 1 { "└──" } else { "├──" };
+        let prefix = if i == files.len() - 1 {
+            "└──"
+        } else {
+            "├──"
+        };
         println!("  {}", style(format!("  {prefix} {filename}")).dim());
     }
 

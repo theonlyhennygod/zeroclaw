@@ -6,7 +6,7 @@ use crate::config::{
     AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, HeartbeatConfig,
     MemoryConfig, ObservabilityConfig, RuntimeConfig, SecretsConfig,
 };
-use crate::onboard::common::{BANNER, ProjectContext};
+use crate::onboard::common::{ProjectContext, BANNER};
 use crate::onboard::provider_setup::default_model_for_provider;
 use crate::onboard::workspace_scaffold::scaffold_workspace;
 
@@ -42,8 +42,16 @@ pub fn run_quick_setup(
         backend: memory_backend_name.clone(),
         auto_save: memory_backend_name != "none",
         hygiene_enabled: memory_backend_name == "sqlite",
-        archive_after_days: if memory_backend_name == "sqlite" { 7 } else { 0 },
-        purge_after_days: if memory_backend_name == "sqlite" { 30 } else { 0 },
+        archive_after_days: if memory_backend_name == "sqlite" {
+            7
+        } else {
+            0
+        },
+        purge_after_days: if memory_backend_name == "sqlite" {
+            30
+        } else {
+            0
+        },
         conversation_retention_days: 30,
         embedding_provider: "none".to_string(),
         embedding_model: "text-embedding-3-small".to_string(),

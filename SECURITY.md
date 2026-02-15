@@ -53,7 +53,7 @@ ZeroClaw implements defense-in-depth security:
 
 ## Security Testing
 
-All security mechanisms are covered by automated tests (1,296 tests):
+All security mechanisms are covered by automated tests (1,337 tests):
 
 ```bash
 cargo test -- security

@@ -15,7 +15,7 @@
 Fast, small, and fully autonomous AI assistant infrastructure — deploy anywhere, swap anything.
 
 ```
-~3.4MB binary · <10ms startup · 1,296 tests · 22+ providers · 8 traits · Pluggable everything
+~3.4MB binary · <10ms startup · 1,337 tests · 22+ providers · 8 traits · Pluggable everything
 ```
 
 ### Why teams pick ZeroClaw
@@ -393,7 +393,7 @@ See [aieos.org](https://aieos.org) for the full schema and live examples.
 ```bash
 cargo build              # Dev build
 cargo build --release    # Release build (~3.4MB)
-cargo test               # 1,296 tests
+cargo test               # 1,337 tests
 cargo clippy             # Lint (0 warnings)
 cargo fmt                # Format
 

@@ -412,7 +412,10 @@ async fn handle_whatsapp_message(State(state): State<AppState>, body: Bytes) -> 
             Err(e) => {
                 tracing::error!("LLM error for WhatsApp message: {e:#}");
                 let _ = wa
-                    .send("Sorry, I couldn't process your message right now.", &msg.sender)
+                    .send(
+                        "Sorry, I couldn't process your message right now.",
+                        &msg.sender,
+                    )
                     .await;
             }
         }
