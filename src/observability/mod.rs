@@ -1,10 +1,12 @@
 pub mod log;
 pub mod multi;
 pub mod noop;
+pub mod prometheus;
 pub mod traits;
 
 pub use self::log::LogObserver;
 pub use noop::NoopObserver;
+pub use prometheus::PrometheusObserver;
 pub use traits::{Observer, ObserverEvent};
 
 use crate::config::ObservabilityConfig;
@@ -13,6 +15,7 @@ use crate::config::ObservabilityConfig;
 pub fn create_observer(config: &ObservabilityConfig) -> Box<dyn Observer> {
     match config.backend.as_str() {
         "log" => Box::new(LogObserver::new()),
+        "prometheus" => Box::new(PrometheusObserver::new()),
         "none" | "noop" => Box::new(NoopObserver),
         _ => {
             tracing::warn!(
@@ -53,9 +56,17 @@ mod tests {
     }
 
     #[test]
-    fn factory_unknown_falls_back_to_noop() {
+    fn factory_prometheus_returns_prometheus() {
         let cfg = ObservabilityConfig {
             backend: "prometheus".into(),
+        };
+        assert_eq!(create_observer(&cfg).name(), "prometheus");
+    }
+
+    #[test]
+    fn factory_unknown_falls_back_to_noop() {
+        let cfg = ObservabilityConfig {
+            backend: "xyzzy_unknown".into(),
         };
         assert_eq!(create_observer(&cfg).name(), "noop");
     }

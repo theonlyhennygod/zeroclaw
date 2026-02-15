@@ -33,6 +33,10 @@ impl Observer for MultiObserver {
     fn name(&self) -> &str {
         "multi"
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[cfg(test)]
@@ -75,6 +79,9 @@ mod tests {
         }
         fn name(&self) -> &str {
             "counting"
+        }
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
         }
     }
 

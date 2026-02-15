@@ -13,6 +13,10 @@ impl Observer for NoopObserver {
     fn name(&self) -> &str {
         "noop"
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[cfg(test)]
