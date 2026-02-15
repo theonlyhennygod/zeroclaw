@@ -3,6 +3,7 @@ pub mod browser_open;
 pub mod composio;
 pub mod file_read;
 pub mod file_write;
+pub mod mcp_client;
 pub mod memory_forget;
 pub mod memory_recall;
 pub mod memory_store;
@@ -21,6 +22,7 @@ pub use shell::ShellTool;
 pub use traits::Tool;
 #[allow(unused_imports)]
 pub use traits::{ToolResult, ToolSpec};
+pub use mcp_client::McpClientTool;
 
 use crate::memory::Memory;
 use crate::security::SecurityPolicy;
@@ -41,6 +43,7 @@ pub fn all_tools(
     memory: Arc<dyn Memory>,
     composio_key: Option<&str>,
     browser_config: &crate::config::BrowserConfig,
+    mcp_config: &crate::config::McpConfig,
 ) -> Vec<Box<dyn Tool>> {
     let mut tools: Vec<Box<dyn Tool>> = vec![
         Box::new(ShellTool::new(security.clone())),
@@ -69,6 +72,10 @@ pub fn all_tools(
         if !key.is_empty() {
             tools.push(Box::new(ComposioTool::new(key)));
         }
+    }
+
+    if mcp_config.enabled && !mcp_config.servers.is_empty() {
+        tools.push(Box::new(McpClientTool::new(mcp_config.servers.clone())));
     }
 
     tools
@@ -104,7 +111,7 @@ mod tests {
             session_name: None,
         };
 
-        let tools = all_tools(&security, mem, None, &browser);
+        let tools = all_tools(&security, mem, None, &browser, &crate::config::McpConfig::default());
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(!names.contains(&"browser_open"));
     }
@@ -126,7 +133,7 @@ mod tests {
             session_name: None,
         };
 
-        let tools = all_tools(&security, mem, None, &browser);
+        let tools = all_tools(&security, mem, None, &browser, &crate::config::McpConfig::default());
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(names.contains(&"browser_open"));
     }

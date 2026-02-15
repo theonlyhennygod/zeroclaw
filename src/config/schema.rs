@@ -54,6 +54,9 @@ pub struct Config {
 
     #[serde(default)]
     pub identity: IdentityConfig,
+
+    #[serde(default)]
+    pub mcp: McpConfig,
 }
 
 // ── Identity (AIEOS / OpenClaw format) ──────────────────────────
@@ -187,6 +190,32 @@ pub struct BrowserConfig {
     /// Session name for agent-browser (persists state across commands)
     #[serde(default)]
     pub session_name: Option<String>,
+}
+
+// ── MCP (Model Context Protocol) ────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct McpConfig {
+    /// Enable MCP client for external tool servers
+    #[serde(default)]
+    pub enabled: bool,
+    /// MCP server definitions
+    #[serde(default)]
+    pub servers: Vec<McpServerConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServerConfig {
+    /// Unique name for this MCP server
+    pub name: String,
+    /// Command to start the MCP server
+    pub command: String,
+    /// Arguments for the command
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Environment variables for the server process
+    #[serde(default)]
+    pub env: std::collections::HashMap<String, String>,
 }
 
 // ── Memory ───────────────────────────────────────────────────
@@ -637,6 +666,7 @@ impl Default for Config {
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             identity: IdentityConfig::default(),
+            mcp: McpConfig::default(),
         }
     }
 }
@@ -876,6 +906,7 @@ mod tests {
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             identity: IdentityConfig::default(),
+            mcp: McpConfig::default(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -946,6 +977,7 @@ default_temperature = 0.7
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             identity: IdentityConfig::default(),
+            mcp: McpConfig::default(),
         };
 
         config.save().unwrap();
@@ -1659,5 +1691,68 @@ default_temperature = 0.7
         assert!(g.require_pairing);
         assert!(!g.allow_public_bind);
         assert!(g.paired_tokens.is_empty());
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // MCP CONFIG TESTS
+    // ══════════════════════════════════════════════════════════
+
+    #[test]
+    fn mcp_config_default_disabled() {
+        let m = McpConfig::default();
+        assert!(!m.enabled, "MCP must be disabled by default");
+        assert!(m.servers.is_empty());
+    }
+
+    #[test]
+    fn mcp_config_serde_roundtrip() {
+        let m = McpConfig {
+            enabled: true,
+            servers: vec![McpServerConfig {
+                name: "fs".into(),
+                command: "npx".into(),
+                args: vec!["-y".into(), "@mcp/server-filesystem".into()],
+                env: std::collections::HashMap::from([("HOME".into(), "/tmp".into())]),
+            }],
+        };
+        let toml_str = toml::to_string(&m).unwrap();
+        let parsed: McpConfig = toml::from_str(&toml_str).unwrap();
+        assert!(parsed.enabled);
+        assert_eq!(parsed.servers.len(), 1);
+        assert_eq!(parsed.servers[0].name, "fs");
+        assert_eq!(parsed.servers[0].args.len(), 2);
+    }
+
+    #[test]
+    fn mcp_config_backward_compat_missing_section() {
+        let minimal = r#"
+workspace_dir = "/tmp/ws"
+config_path = "/tmp/config.toml"
+default_temperature = 0.7
+"#;
+        let parsed: Config = toml::from_str(minimal).unwrap();
+        assert!(!parsed.mcp.enabled, "Missing [mcp] must default to disabled");
+        assert!(parsed.mcp.servers.is_empty());
+    }
+
+    #[test]
+    fn mcp_server_config_toml_roundtrip() {
+        let toml_str = r#"
+name = "test"
+command = "node"
+args = ["server.js"]
+"#;
+        let parsed: McpServerConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(parsed.name, "test");
+        assert_eq!(parsed.command, "node");
+        assert_eq!(parsed.args, vec!["server.js"]);
+        assert!(parsed.env.is_empty());
+    }
+
+    #[test]
+    fn config_default_has_mcp() {
+        let c = Config::default();
+        assert!(!c.mcp.enabled);
+        assert!(c.mcp.servers.is_empty());
     }
 }
