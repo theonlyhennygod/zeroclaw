@@ -190,38 +190,6 @@ pub fn build_system_prompt(
     }
 }
 
-/// Inject `OpenClaw` (markdown) identity files into the prompt
-fn inject_openclaw_identity(prompt: &mut String, workspace_dir: &std::path::Path) {
-    #[allow(unused_imports)]
-    use std::fmt::Write;
-
-    prompt.push_str("## Project Context\n\n");
-    prompt
-        .push_str("The following workspace files define your identity, behavior, and context.\n\n");
-
-    let bootstrap_files = [
-        "AGENTS.md",
-        "SOUL.md",
-        "TOOLS.md",
-        "IDENTITY.md",
-        "USER.md",
-        "HEARTBEAT.md",
-    ];
-
-    for filename in &bootstrap_files {
-        inject_workspace_file(prompt, workspace_dir, filename);
-    }
-
-    // BOOTSTRAP.md — only if it exists (first-run ritual)
-    let bootstrap_path = workspace_dir.join("BOOTSTRAP.md");
-    if bootstrap_path.exists() {
-        inject_workspace_file(prompt, workspace_dir, "BOOTSTRAP.md");
-    }
-
-    // MEMORY.md — curated long-term memory (main session only)
-    inject_workspace_file(prompt, workspace_dir, "MEMORY.md");
-}
-
 /// Inject a single workspace file into the prompt with truncation and missing-file markers.
 fn inject_workspace_file(prompt: &mut String, workspace_dir: &std::path::Path, filename: &str) {
     use std::fmt::Write;

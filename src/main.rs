@@ -4,8 +4,7 @@
     clippy::missing_panics_doc,
     clippy::unnecessary_literal_bound,
     clippy::module_name_repetitions,
-    clippy::struct_field_names,
-    dead_code
+    clippy::struct_field_names
 )]
 
 use anyhow::{bail, Result};
@@ -14,6 +13,7 @@ use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 
 mod agent;
+#[allow(dead_code)] // TODO: wire rich media/channel helper APIs into active command flows.
 mod channels;
 mod config;
 mod cron;
@@ -21,18 +21,28 @@ mod daemon;
 mod doctor;
 mod gateway;
 mod health;
+#[allow(dead_code)] // TODO: wire the heartbeat scheduler loop into daemon lifecycle.
 mod heartbeat;
+#[allow(dead_code)] // TODO: expose category enumeration in CLI/help output.
 mod integrations;
+#[allow(dead_code)] // TODO: wire chunking/embedding helper paths into active memory workflows.
 mod memory;
 mod migration;
+#[allow(dead_code)] // TODO: wire multi-observer metrics/events into runtime telemetry.
 mod observability;
 mod onboard;
+#[allow(dead_code)] // TODO: expose all provider auth variants through provider config surface.
 mod providers;
+#[allow(dead_code)] // TODO: wire runtime capability queries into command safety gates.
 mod runtime;
+#[allow(dead_code)] // TODO: wire secret store and policy counters into live command execution.
 mod security;
 mod service;
+#[allow(dead_code)] // TODO: wire workspace skill bootstrap/init into onboarding flow.
 mod skills;
+#[allow(dead_code)] // TODO: wire optional tools behind runtime tool dispatch.
 mod tools;
+#[allow(dead_code)] // TODO: wire tunnel process lifecycle and health checks into gateway commands.
 mod tunnel;
 
 use config::Config;

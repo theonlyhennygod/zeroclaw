@@ -186,7 +186,7 @@ impl Tool for YourTool {
 
 - [ ] `cargo fmt` — code is formatted
 - [ ] `cargo clippy -- -D warnings` — no warnings
-- [ ] `cargo test` — all 129+ tests pass
+- [ ] `cargo test` — all 1,296 tests pass
 - [ ] New code has inline `#[cfg(test)]` tests
 - [ ] No new dependencies unless absolutely necessary (we optimize for binary size)
 - [ ] README updated if adding user-facing features
