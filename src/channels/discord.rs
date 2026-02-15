@@ -35,6 +35,62 @@ impl DiscordChannel {
         let part = token.split('.').next()?;
         base64_decode(part)
     }
+
+    async fn send_single(&self, message: &str, channel_id: &str) -> anyhow::Result<()> {
+        let url = format!("https://discord.com/api/v10/channels/{channel_id}/messages");
+        let body = json!({ "content": message });
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("Authorization", format!("Bot {}", self.bot_token))
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let err = resp
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read response body: {e}>"));
+            anyhow::bail!("Discord send message failed ({status}): {err}");
+        }
+
+        Ok(())
+    }
+}
+
+/// Discord enforces a 2000-character limit on bot message content.
+const DISCORD_MAX_MESSAGE_LEN: usize = 2000;
+
+/// Split a message into chunks of at most `max_len` characters, preferring to
+/// break at newline or space boundaries to avoid splitting words mid-token.
+fn chunk_message(text: &str, max_len: usize) -> Vec<String> {
+    if text.len() <= max_len {
+        return vec![text.to_string()];
+    }
+
+    let mut chunks = Vec::new();
+    let mut remaining = text;
+
+    while !remaining.is_empty() {
+        if remaining.len() <= max_len {
+            chunks.push(remaining.to_string());
+            break;
+        }
+
+        let split_at = remaining[..max_len]
+            .rfind('\n')
+            .map(|pos| pos + 1)
+            .or_else(|| remaining[..max_len].rfind(' ').map(|pos| pos + 1))
+            .unwrap_or(max_len);
+
+        chunks.push(remaining[..split_at].to_string());
+        remaining = &remaining[split_at..];
+    }
+
+    chunks
 }
 
 const BASE64_ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -84,26 +140,10 @@ impl Channel for DiscordChannel {
     }
 
     async fn send(&self, message: &str, channel_id: &str) -> anyhow::Result<()> {
-        let url = format!("https://discord.com/api/v10/channels/{channel_id}/messages");
-        let body = json!({ "content": message });
-
-        let resp = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bot {}", self.bot_token))
-            .json(&body)
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let err = resp
-                .text()
-                .await
-                .unwrap_or_else(|e| format!("<failed to read response body: {e}>"));
-            anyhow::bail!("Discord send message failed ({status}): {err}");
+        let chunks = chunk_message(message, DISCORD_MAX_MESSAGE_LEN);
+        for chunk in &chunks {
+            self.send_single(chunk, channel_id).await?;
         }
-
         Ok(())
     }
 
@@ -399,5 +439,62 @@ mod tests {
     fn bot_user_id_from_empty_token() {
         let id = DiscordChannel::bot_user_id_from_token("");
         assert_eq!(id, Some(String::new()));
+    }
+
+    #[test]
+    fn chunk_message_short_message_unchanged() {
+        let chunks = chunk_message("hello", 2000);
+        assert_eq!(chunks, vec!["hello"]);
+    }
+
+    #[test]
+    fn chunk_message_exact_limit_unchanged() {
+        let msg = "a".repeat(2000);
+        let chunks = chunk_message(&msg, 2000);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].len(), 2000);
+    }
+
+    #[test]
+    fn chunk_message_splits_on_newline() {
+        let msg = format!("{}\n{}", "a".repeat(1500), "b".repeat(1000));
+        let chunks = chunk_message(&msg, 2000);
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0], format!("{}\n", "a".repeat(1500)));
+        assert_eq!(chunks[1], "b".repeat(1000));
+    }
+
+    #[test]
+    fn chunk_message_splits_on_space_when_no_newline() {
+        let msg = format!("{} {}", "a".repeat(1500), "b".repeat(1000));
+        let chunks = chunk_message(&msg, 2000);
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0], format!("{} ", "a".repeat(1500)));
+        assert_eq!(chunks[1], "b".repeat(1000));
+    }
+
+    #[test]
+    fn chunk_message_hard_splits_when_no_boundary() {
+        let msg = "a".repeat(3000);
+        let chunks = chunk_message(&msg, 2000);
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].len(), 2000);
+        assert_eq!(chunks[1].len(), 1000);
+    }
+
+    #[test]
+    fn chunk_message_empty_string() {
+        let chunks = chunk_message("", 2000);
+        assert_eq!(chunks, vec![""]);
+    }
+
+    #[test]
+    fn chunk_message_multiple_chunks() {
+        let msg = "a".repeat(5000);
+        let chunks = chunk_message(&msg, 2000);
+        assert_eq!(chunks.len(), 3);
+        assert_eq!(chunks[0].len(), 2000);
+        assert_eq!(chunks[1].len(), 2000);
+        assert_eq!(chunks[2].len(), 1000);
     }
 }
