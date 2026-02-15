@@ -185,7 +185,10 @@ impl ScheduleTool {
         let command = args
             .get("command")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter for create action"))?;
+            .filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| {
+                anyhow::anyhow!("Missing or empty 'command' parameter for create action")
+            })?;
 
         let has_expression = args.get("expression").and_then(|v| v.as_str()).is_some();
         let has_delay = args.get("delay").and_then(|v| v.as_str()).is_some();
@@ -240,6 +243,13 @@ impl ScheduleTool {
             let run_at: DateTime<Utc> = DateTime::parse_from_rfc3339(run_at_str)
                 .map_err(|e| anyhow::anyhow!("Invalid run_at timestamp: {e}"))?
                 .with_timezone(&Utc);
+            if run_at <= Utc::now() {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("run_at must be in the future".into()),
+                });
+            }
             let job = cron::add_one_shot_job(&self.config, run_at, command)?;
             Ok(ToolResult {
                 success: true,
@@ -308,14 +318,19 @@ pub fn parse_human_delay(input: &str) -> Result<chrono::Duration> {
         .parse()
         .map_err(|_| anyhow::anyhow!("Invalid number in delay: {input}"))?;
 
-    let secs = match unit {
-        "s" => n,
-        "m" => n * 60,
-        "h" => n * 3600,
-        "d" => n * 86400,
-        "w" => n * 604_800,
+    let multiplier: u64 = match unit {
+        "s" => 1,
+        "m" => 60,
+        "h" => 3600,
+        "d" => 86400,
+        "w" => 604_800,
         _ => anyhow::bail!("Unknown delay unit '{unit}' in '{input}'. Use s, m, h, d, or w."),
     };
+
+    let secs = n
+        .checked_mul(multiplier)
+        .filter(|&s| s <= i64::MAX as u64)
+        .ok_or_else(|| anyhow::anyhow!("Delay value too large: {input}"))?;
 
     Ok(chrono::Duration::seconds(secs as i64))
 }
@@ -396,6 +411,12 @@ mod tests {
     fn parse_invalid_number() {
         let err = parse_human_delay("abcm").unwrap_err();
         assert!(err.to_string().contains("Invalid number"));
+    }
+
+    #[test]
+    fn parse_overflow_rejected() {
+        let err = parse_human_delay(&format!("{}w", u64::MAX)).unwrap_err();
+        assert!(err.to_string().contains("too large"));
     }
 
     // ── ScheduleTool metadata tests ──────────────────────
@@ -502,6 +523,38 @@ mod tests {
             .unwrap();
         assert!(!result.success);
         assert!(result.error.as_deref().unwrap().contains("Exactly one"));
+    }
+
+    #[tokio::test]
+    async fn create_rejects_empty_command() {
+        let (_tmp, config, security) = test_setup();
+        let tool = ScheduleTool::new(security, config);
+
+        let result = tool
+            .execute(json!({
+                "action": "create",
+                "expression": "*/5 * * * *",
+                "command": "   "
+            }))
+            .await;
+        assert!(result.is_err() || !result.as_ref().unwrap().success);
+    }
+
+    #[tokio::test]
+    async fn create_rejects_past_run_at() {
+        let (_tmp, config, security) = test_setup();
+        let tool = ScheduleTool::new(security, config);
+
+        let result = tool
+            .execute(json!({
+                "action": "create",
+                "run_at": "2020-01-01T00:00:00Z",
+                "command": "echo past"
+            }))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.as_deref().unwrap().contains("future"));
     }
 
     #[tokio::test]
