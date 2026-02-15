@@ -71,7 +71,7 @@ pub fn all_tools(
 
     // Vision tools are always available
     tools.push(Box::new(ScreenshotTool::new(security.clone())));
-    tools.push(Box::new(ImageInfoTool::new()));
+    tools.push(Box::new(ImageInfoTool::new(security.clone())));
 
     if let Some(key) = composio_key {
         if !key.is_empty() {

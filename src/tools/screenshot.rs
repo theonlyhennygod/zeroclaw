@@ -39,11 +39,11 @@ impl ScreenshotTool {
                 "-c".into(),
                 format!(
                     "if command -v gnome-screenshot >/dev/null 2>&1; then \
-                         gnome-screenshot -f {output_path}; \
+                         gnome-screenshot -f '{output_path}'; \
                      elif command -v scrot >/dev/null 2>&1; then \
-                         scrot {output_path}; \
+                         scrot '{output_path}'; \
                      elif command -v import >/dev/null 2>&1; then \
-                         import -window root {output_path}; \
+                         import -window root '{output_path}'; \
                      else \
                          echo 'NO_SCREENSHOT_TOOL' >&2; exit 1; \
                      fi"
@@ -139,6 +139,22 @@ impl ScreenshotTool {
 
     /// Read the screenshot file and return base64-encoded result.
     async fn read_and_encode(output_path: &std::path::Path) -> anyhow::Result<ToolResult> {
+        // Check file size before reading to prevent OOM on large screenshots
+        const MAX_RAW_BYTES: u64 = 1_572_864; // ~1.5 MB (base64 expands ~33%)
+        if let Ok(meta) = tokio::fs::metadata(output_path).await {
+            if meta.len() > MAX_RAW_BYTES {
+                return Ok(ToolResult {
+                    success: true,
+                    output: format!(
+                        "Screenshot saved to: {}\nSize: {} bytes (too large to base64-encode inline)",
+                        output_path.display(),
+                        meta.len(),
+                    ),
+                    error: None,
+                });
+            }
+        }
+
         match tokio::fs::read(output_path).await {
             Ok(bytes) => {
                 use base64::Engine;
@@ -159,7 +175,14 @@ impl ScreenshotTool {
                 if truncated {
                     output_msg.push_str(" (truncated)");
                 }
-                let _ = write!(output_msg, "\ndata:image/png;base64,{encoded}");
+                let mime = match output_path.extension().and_then(|e| e.to_str()) {
+                    Some("jpg" | "jpeg") => "image/jpeg",
+                    Some("bmp") => "image/bmp",
+                    Some("gif") => "image/gif",
+                    Some("webp") => "image/webp",
+                    _ => "image/png",
+                };
+                let _ = write!(output_msg, "\ndata:{mime};base64,{encoded}");
 
                 Ok(ToolResult {
                     success: true,
@@ -203,6 +226,13 @@ impl Tool for ScreenshotTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
+        if !self.security.can_act() {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("Action blocked: autonomy is read-only".into()),
+            });
+        }
         self.capture(args).await
     }
 }
@@ -250,6 +280,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     fn screenshot_command_exists() {
         let cmd = ScreenshotTool::screenshot_command("/tmp/test.png");
         assert!(cmd.is_some());

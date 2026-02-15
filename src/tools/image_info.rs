@@ -1,8 +1,10 @@
 use super::traits::{Tool, ToolResult};
+use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::json;
 use std::fmt::Write;
 use std::path::Path;
+use std::sync::Arc;
 
 /// Maximum file size we will read and base64-encode (5 MB).
 const MAX_IMAGE_BYTES: u64 = 5_242_880;
@@ -12,11 +14,13 @@ const MAX_IMAGE_BYTES: u64 = 5_242_880;
 /// Since providers are currently text-only, this tool extracts what it can
 /// (file size, format, dimensions from header bytes) and provides base64
 /// data for future multimodal provider support.
-pub struct ImageInfoTool;
+pub struct ImageInfoTool {
+    security: Arc<SecurityPolicy>,
+}
 
 impl ImageInfoTool {
-    pub fn new() -> Self {
-        Self
+    pub fn new(security: Arc<SecurityPolicy>) -> Self {
+        Self { security }
     }
 
     /// Detect image format from first few bytes (magic numbers).
@@ -102,6 +106,9 @@ impl ImageInfoTool {
             // Skip this segment
             if i + 1 < bytes.len() {
                 let seg_len = u16::from_be_bytes([bytes[i], bytes[i + 1]]) as usize;
+                if seg_len < 2 {
+                    return None; // Malformed segment (valid segments have length >= 2)
+                }
                 i += seg_len;
             } else {
                 return None;
@@ -150,6 +157,15 @@ impl Tool for ImageInfoTool {
             .unwrap_or(false);
 
         let path = Path::new(path_str);
+
+        // Restrict reads to workspace directory to prevent arbitrary file exfiltration
+        if !self.security.is_path_allowed(path_str) {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!("Path not allowed: {path_str} (must be within workspace)")),
+            });
+        }
 
         if !path.exists() {
             return Ok(ToolResult {
@@ -213,23 +229,34 @@ impl Tool for ImageInfoTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::{AutonomyLevel, SecurityPolicy};
+
+    fn test_security() -> Arc<SecurityPolicy> {
+        Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            workspace_dir: std::env::temp_dir(),
+            workspace_only: false,
+            forbidden_paths: vec![],
+            ..SecurityPolicy::default()
+        })
+    }
 
     #[test]
     fn image_info_tool_name() {
-        let tool = ImageInfoTool::new();
+        let tool = ImageInfoTool::new(test_security());
         assert_eq!(tool.name(), "image_info");
     }
 
     #[test]
     fn image_info_tool_description() {
-        let tool = ImageInfoTool::new();
+        let tool = ImageInfoTool::new(test_security());
         assert!(!tool.description().is_empty());
         assert!(tool.description().contains("image"));
     }
 
     #[test]
     fn image_info_tool_schema() {
-        let tool = ImageInfoTool::new();
+        let tool = ImageInfoTool::new(test_security());
         let schema = tool.parameters_schema();
         assert!(schema["properties"]["path"].is_object());
         assert!(schema["properties"]["include_base64"].is_object());
@@ -239,7 +266,7 @@ mod tests {
 
     #[test]
     fn image_info_tool_spec() {
-        let tool = ImageInfoTool::new();
+        let tool = ImageInfoTool::new(test_security());
         let spec = tool.spec();
         assert_eq!(spec.name, "image_info");
         assert!(spec.parameters.is_object());
@@ -337,6 +364,38 @@ mod tests {
     }
 
     #[test]
+    fn jpeg_dimensions() {
+        // Minimal JPEG-like byte sequence with SOF0 marker
+        let mut bytes: Vec<u8> = vec![
+            0xFF, 0xD8, // SOI
+            0xFF, 0xE0, // APP0 marker
+            0x00, 0x10, // APP0 length = 16
+        ];
+        bytes.extend_from_slice(&[0u8; 14]); // APP0 payload
+        bytes.extend_from_slice(&[
+            0xFF, 0xC0, // SOF0 marker
+            0x00, 0x11, // SOF0 length
+            0x08,       // precision
+            0x01, 0xE0, // height: 480
+            0x02, 0x80, // width: 640
+        ]);
+        let dims = ImageInfoTool::extract_dimensions(&bytes, "jpeg");
+        assert_eq!(dims, Some((640, 480)));
+    }
+
+    #[test]
+    fn jpeg_malformed_zero_length_segment() {
+        // Zero-length segment should return None instead of looping forever
+        let bytes: Vec<u8> = vec![
+            0xFF, 0xD8, // SOI
+            0xFF, 0xE0, // APP0 marker
+            0x00, 0x00, // length = 0 (malformed)
+        ];
+        let dims = ImageInfoTool::extract_dimensions(&bytes, "jpeg");
+        assert!(dims.is_none());
+    }
+
+    #[test]
     fn unknown_format_no_dimensions() {
         let bytes = b"random data here";
         let dims = ImageInfoTool::extract_dimensions(bytes, "unknown");
@@ -347,14 +406,14 @@ mod tests {
 
     #[tokio::test]
     async fn execute_missing_path() {
-        let tool = ImageInfoTool::new();
+        let tool = ImageInfoTool::new(test_security());
         let result = tool.execute(json!({})).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn execute_nonexistent_file() {
-        let tool = ImageInfoTool::new();
+        let tool = ImageInfoTool::new(test_security());
         let result = tool
             .execute(json!({"path": "/tmp/nonexistent_image_xyz.png"}))
             .await
@@ -389,7 +448,7 @@ mod tests {
         ];
         std::fs::write(&png_path, &png_bytes).unwrap();
 
-        let tool = ImageInfoTool::new();
+        let tool = ImageInfoTool::new(test_security());
         let result = tool
             .execute(json!({"path": png_path.to_string_lossy()}))
             .await
@@ -419,7 +478,7 @@ mod tests {
         ];
         std::fs::write(&png_path, &png_bytes).unwrap();
 
-        let tool = ImageInfoTool::new();
+        let tool = ImageInfoTool::new(test_security());
         let result = tool
             .execute(json!({"path": png_path.to_string_lossy(), "include_base64": true}))
             .await
