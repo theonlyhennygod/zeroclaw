@@ -2,8 +2,9 @@ use crate::security::AutonomyLevel;
 use anyhow::{Context, Result};
 use directories::UserDirs;
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::PathBuf;
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
 
 // ── Top-level config ──────────────────────────────────────────────
 
@@ -917,9 +918,84 @@ impl Config {
 
     pub fn save(&self) -> Result<()> {
         let toml_str = toml::to_string_pretty(self).context("Failed to serialize config")?;
-        fs::write(&self.config_path, toml_str).context("Failed to write config file")?;
+
+        let parent_dir = self
+            .config_path
+            .parent()
+            .context("Config path must have a parent directory")?;
+        fs::create_dir_all(parent_dir).with_context(|| {
+            format!(
+                "Failed to create config directory: {}",
+                parent_dir.display()
+            )
+        })?;
+
+        let file_name = self
+            .config_path
+            .file_name()
+            .and_then(|v| v.to_str())
+            .unwrap_or("config.toml");
+        let temp_path = parent_dir.join(format!(".{file_name}.tmp-{}", uuid::Uuid::new_v4()));
+        let backup_path = parent_dir.join(format!("{file_name}.bak"));
+
+        let mut temp_file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temp_path)
+            .with_context(|| {
+                format!(
+                    "Failed to create temporary config file: {}",
+                    temp_path.display()
+                )
+            })?;
+        temp_file
+            .write_all(toml_str.as_bytes())
+            .context("Failed to write temporary config contents")?;
+        temp_file
+            .sync_all()
+            .context("Failed to fsync temporary config file")?;
+        drop(temp_file);
+
+        let had_existing_config = self.config_path.exists();
+        if had_existing_config {
+            fs::copy(&self.config_path, &backup_path).with_context(|| {
+                format!(
+                    "Failed to create config backup before atomic replace: {}",
+                    backup_path.display()
+                )
+            })?;
+        }
+
+        if let Err(e) = fs::rename(&temp_path, &self.config_path) {
+            let _ = fs::remove_file(&temp_path);
+            if had_existing_config && backup_path.exists() {
+                let _ = fs::copy(&backup_path, &self.config_path);
+            }
+            anyhow::bail!("Failed to atomically replace config file: {e}");
+        }
+
+        sync_directory(parent_dir)?;
+
+        if had_existing_config {
+            let _ = fs::remove_file(&backup_path);
+        }
+
         Ok(())
     }
+}
+
+#[cfg(unix)]
+fn sync_directory(path: &Path) -> Result<()> {
+    let dir = File::open(path)
+        .with_context(|| format!("Failed to open directory for fsync: {}", path.display()))?;
+    dir.sync_all()
+        .with_context(|| format!("Failed to fsync directory metadata: {}", path.display()))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn sync_directory(_path: &Path) -> Result<()> {
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1135,6 +1211,38 @@ default_temperature = 0.7
         assert_eq!(loaded.api_key.as_deref(), Some("sk-roundtrip"));
         assert_eq!(loaded.default_model.as_deref(), Some("test-model"));
         assert!((loaded.default_temperature - 0.9).abs() < f64::EPSILON);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+
+    #[test]
+    fn config_save_atomic_cleanup() {
+        let dir =
+            std::env::temp_dir().join(format!("zeroclaw_test_config_{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+
+        let config_path = dir.join("config.toml");
+        let mut config = Config::default();
+        config.workspace_dir = dir.join("workspace");
+        config.config_path = config_path.clone();
+        config.default_model = Some("model-a".into());
+
+        config.save().unwrap();
+        assert!(config_path.exists());
+
+        config.default_model = Some("model-b".into());
+        config.save().unwrap();
+
+        let contents = fs::read_to_string(&config_path).unwrap();
+        assert!(contents.contains("model-b"));
+
+        let names: Vec<String> = fs::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        assert!(!names.iter().any(|name| name.contains(".tmp-")));
+        assert!(!names.iter().any(|name| name.ends_with(".bak")));
 
         let _ = fs::remove_dir_all(&dir);
     }
