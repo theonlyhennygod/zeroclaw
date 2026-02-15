@@ -23,7 +23,27 @@ pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<
             api_key.filter(|k| !k.is_empty()),
         ))),
 
-        // ── OpenAI-compatible providers ──────────────────────
+        // ── Moonshot / Kimi providers ──────────────────────
+        // Moonshot AI - International endpoint (api.moonshot.ai)
+        "moonshot" | "moonshotai" | "moonshot-ai" => Ok(Box::new(OpenAiCompatibleProvider::new(
+            "Moonshot AI",
+            "https://api.moonshot.ai/v1",
+            api_key,
+            AuthStyle::Bearer,
+        ))),
+        // Moonshot AI - China endpoint (api.moonshot.cn)
+        "moonshot-cn" | "moonshotai-cn" => Ok(Box::new(OpenAiCompatibleProvider::new(
+            "Moonshot AI (China)",
+            "https://api.moonshot.cn/v1",
+            api_key,
+            AuthStyle::Bearer,
+        ))),
+        // Kimi Coding - Anthropic-compatible API (api.kimi.com)
+        "kimi-coding" | "kimi-for-coding" | "kimi" => Ok(Box::new(
+            anthropic::AnthropicProvider::new_with_url(api_key, "https://api.kimi.com/coding"),
+        )),
+
+        // ── OpenAI-compatible providers ──
         "venice" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Venice", "https://api.venice.ai", api_key, AuthStyle::Bearer,
         ))),
@@ -35,9 +55,6 @@ pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<
             "https://gateway.ai.cloudflare.com/v1",
             api_key,
             AuthStyle::Bearer,
-        ))),
-        "moonshot" | "kimi" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Moonshot", "https://api.moonshot.cn", api_key, AuthStyle::Bearer,
         ))),
         "synthetic" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Synthetic", "https://api.synthetic.com", api_key, AuthStyle::Bearer,
@@ -175,7 +192,29 @@ mod tests {
         assert!(create_provider("ollama", None).is_ok());
     }
 
-    // ── OpenAI-compatible providers ──────────────────────────
+    // ── Moonshot / Kimi providers ──────────────────────────
+
+    #[test]
+    fn factory_moonshot_intl() {
+        assert!(create_provider("moonshot", Some("key")).is_ok());
+        assert!(create_provider("moonshotai", Some("key")).is_ok());
+        assert!(create_provider("moonshot-ai", Some("key")).is_ok());
+    }
+
+    #[test]
+    fn factory_moonshot_cn() {
+        assert!(create_provider("moonshot-cn", Some("key")).is_ok());
+        assert!(create_provider("moonshotai-cn", Some("key")).is_ok());
+    }
+
+    #[test]
+    fn factory_kimi_coding() {
+        assert!(create_provider("kimi-coding", Some("key")).is_ok());
+        assert!(create_provider("kimi-for-coding", Some("key")).is_ok());
+        assert!(create_provider("kimi", Some("key")).is_ok());
+    }
+
+    // ── OpenAI-compatible providers ──
 
     #[test]
     fn factory_venice() {
@@ -192,12 +231,6 @@ mod tests {
     fn factory_cloudflare() {
         assert!(create_provider("cloudflare", Some("key")).is_ok());
         assert!(create_provider("cloudflare-ai", Some("key")).is_ok());
-    }
-
-    #[test]
-    fn factory_moonshot() {
-        assert!(create_provider("moonshot", Some("key")).is_ok());
-        assert!(create_provider("kimi", Some("key")).is_ok());
     }
 
     #[test]
@@ -367,10 +400,12 @@ mod tests {
             "anthropic",
             "openai",
             "ollama",
+            "moonshot",
+            "moonshot-cn",
+            "kimi-coding",
             "venice",
             "vercel",
             "cloudflare",
-            "moonshot",
             "synthetic",
             "opencode",
             "zai",

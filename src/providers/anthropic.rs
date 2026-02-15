@@ -3,9 +3,13 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
+/// Default Anthropic API base URL
+const ANTHROPIC_API_BASE: &str = "https://api.anthropic.com";
+
 pub struct AnthropicProvider {
     api_key: Option<String>,
     client: Client,
+    base_url: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -35,14 +39,38 @@ struct ContentBlock {
 }
 
 impl AnthropicProvider {
+    /// Create provider for official Anthropic API
     pub fn new(api_key: Option<&str>) -> Self {
         Self {
+            base_url: ANTHROPIC_API_BASE.to_string(),
             api_key: api_key.map(ToString::to_string),
             client: Client::builder()
                 .timeout(std::time::Duration::from_secs(120))
                 .connect_timeout(std::time::Duration::from_secs(10))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
+        }
+    }
+
+    /// Create provider with custom base URL (for Anthropic-compatible APIs like Kimi Coding)
+    pub fn new_with_url(api_key: Option<&str>, base_url: &str) -> Self {
+        Self {
+            base_url: base_url.trim_end_matches('/').to_string(),
+            api_key: api_key.map(ToString::to_string),
+            client: Client::builder()
+                .timeout(std::time::Duration::from_secs(120))
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
+        }
+    }
+
+    /// Get provider display name based on base URL
+    fn provider_name(&self) -> &'static str {
+        if self.base_url == ANTHROPIC_API_BASE {
+            "Anthropic"
+        } else {
+            "Kimi Coding"
         }
     }
 }
@@ -56,8 +84,18 @@ impl Provider for AnthropicProvider {
         model: &str,
         temperature: f64,
     ) -> anyhow::Result<String> {
+        let provider_name = self.provider_name();
+
         let api_key = self.api_key.as_ref().ok_or_else(|| {
-            anyhow::anyhow!("Anthropic API key not set. Set ANTHROPIC_API_KEY or edit config.toml.")
+            if self.base_url == ANTHROPIC_API_BASE {
+                anyhow::anyhow!(
+                    "Anthropic API key not set. Set ANTHROPIC_API_KEY or edit config.toml."
+                )
+            } else {
+                anyhow::anyhow!(
+                    "Kimi Coding API key not set. Set KIMI_API_KEY or edit config.toml."
+                )
+            }
         })?;
 
         let request = ChatRequest {
@@ -71,9 +109,10 @@ impl Provider for AnthropicProvider {
             temperature,
         };
 
+        let endpoint = format!("{}/v1/messages", self.base_url);
         let response = self
             .client
-            .post("https://api.anthropic.com/v1/messages")
+            .post(&endpoint)
             .header("x-api-key", api_key)
             .header("anthropic-version", "2023-06-01")
             .header("content-type", "application/json")
@@ -83,7 +122,7 @@ impl Provider for AnthropicProvider {
 
         if !response.status().is_success() {
             let error = response.text().await?;
-            anyhow::bail!("Anthropic API error: {error}");
+            anyhow::bail!("{provider_name} API error: {error}");
         }
 
         let chat_response: ChatResponse = response.json().await?;
@@ -93,7 +132,7 @@ impl Provider for AnthropicProvider {
             .into_iter()
             .next()
             .map(|c| c.text)
-            .ok_or_else(|| anyhow::anyhow!("No response from Anthropic"))
+            .ok_or_else(|| anyhow::anyhow!("No response from {provider_name}"))
     }
 }
 
@@ -106,6 +145,15 @@ mod tests {
         let p = AnthropicProvider::new(Some("sk-ant-test123"));
         assert!(p.api_key.is_some());
         assert_eq!(p.api_key.as_deref(), Some("sk-ant-test123"));
+        assert_eq!(p.base_url, "https://api.anthropic.com");
+    }
+
+    #[test]
+    fn creates_with_custom_url() {
+        let p =
+            AnthropicProvider::new_with_url(Some("kimi-key"), "https://api.kimi.com/coding/v1/");
+        assert_eq!(p.api_key.as_deref(), Some("kimi-key"));
+        assert_eq!(p.base_url, "https://api.kimi.com/coding/v1");
     }
 
     #[test]
@@ -119,6 +167,18 @@ mod tests {
         let p = AnthropicProvider::new(Some(""));
         assert!(p.api_key.is_some());
         assert_eq!(p.api_key.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn provider_name_is_anthropic_for_default() {
+        let p = AnthropicProvider::new(Some("key"));
+        assert_eq!(p.provider_name(), "Anthropic");
+    }
+
+    #[test]
+    fn provider_name_is_kimi_for_custom_url() {
+        let p = AnthropicProvider::new_with_url(Some("key"), "https://api.kimi.com/coding/v1");
+        assert_eq!(p.provider_name(), "Kimi Coding");
     }
 
     #[tokio::test]
@@ -142,6 +202,18 @@ mod tests {
             .chat_with_system(Some("You are ZeroClaw"), "hello", "claude-3-opus", 0.7)
             .await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn kimi_coding_fails_without_key() {
+        let p = AnthropicProvider::new_with_url(None, "https://api.kimi.com/coding/v1");
+        let result = p.chat_with_system(None, "hello", "k2p5", 0.7).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Kimi Coding API key not set"),
+            "Expected Kimi key error, got: {err}"
+        );
     }
 
     #[test]
