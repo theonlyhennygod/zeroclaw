@@ -10,6 +10,7 @@ pub mod whatsapp;
 
 pub use cli::CliChannel;
 pub use discord::DiscordChannel;
+pub use email_channel::EmailChannel;
 pub use imessage::IMessageChannel;
 pub use matrix::MatrixChannel;
 pub use slack::SlackChannel;
@@ -241,6 +242,7 @@ pub fn handle_command(command: crate::ChannelCommands, config: &Config) -> Resul
                 ("iMessage", config.channels_config.imessage.is_some()),
                 ("Matrix", config.channels_config.matrix.is_some()),
                 ("WhatsApp", config.channels_config.whatsapp.is_some()),
+                ("Email", config.channels_config.email.is_some()),
             ] {
                 println!("  {} {name}", if configured { "✅" } else { "❌" });
             }
@@ -345,6 +347,10 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
                 wa.allowed_numbers.clone(),
             )),
         ));
+    }
+
+    if let Some(ref email_cfg) = config.channels_config.email {
+        channels.push(("Email", Arc::new(EmailChannel::new(email_cfg.clone()))));
     }
 
     if channels.is_empty() {
@@ -512,6 +518,10 @@ pub async fn start_channels(config: Config) -> Result<()> {
             wa.verify_token.clone(),
             wa.allowed_numbers.clone(),
         )));
+    }
+
+    if let Some(ref email_cfg) = config.channels_config.email {
+        channels.push(Arc::new(EmailChannel::new(email_cfg.clone())));
     }
 
     if channels.is_empty() {

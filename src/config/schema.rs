@@ -537,6 +537,7 @@ pub struct ChannelsConfig {
     pub imessage: Option<IMessageConfig>,
     pub matrix: Option<MatrixConfig>,
     pub whatsapp: Option<WhatsAppConfig>,
+    pub email: Option<crate::channels::email_channel::EmailConfig>,
 }
 
 impl Default for ChannelsConfig {
@@ -550,6 +551,7 @@ impl Default for ChannelsConfig {
             imessage: None,
             matrix: None,
             whatsapp: None,
+            email: None,
         }
     }
 }
@@ -847,6 +849,7 @@ mod tests {
                 imessage: None,
                 matrix: None,
                 whatsapp: None,
+                email: None,
             },
             memory: MemoryConfig::default(),
             tunnel: TunnelConfig::default(),
@@ -1059,6 +1062,7 @@ default_temperature = 0.7
                 allowed_users: vec!["@u:m".into()],
             }),
             whatsapp: None,
+            email: None,
         };
         let toml_str = toml::to_string_pretty(&c).unwrap();
         let parsed: ChannelsConfig = toml::from_str(&toml_str).unwrap();
@@ -1215,6 +1219,7 @@ channel_id = "C123"
                 app_secret: None,
                 allowed_numbers: vec!["+1".into()],
             }),
+            email: None,
         };
         let toml_str = toml::to_string_pretty(&c).unwrap();
         let parsed: ChannelsConfig = toml::from_str(&toml_str).unwrap();
