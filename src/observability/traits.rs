@@ -49,4 +49,7 @@ pub trait Observer: Send + Sync {
 
     /// Human-readable name of this observer
     fn name(&self) -> &str;
+
+    /// Downcast support for backend-specific operations (e.g. Prometheus encoding)
+    fn as_any(&self) -> &dyn std::any::Any;
 }

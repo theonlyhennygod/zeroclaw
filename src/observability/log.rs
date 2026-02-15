@@ -64,6 +64,10 @@ impl Observer for LogObserver {
     fn name(&self) -> &str {
         "log"
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[cfg(test)]
