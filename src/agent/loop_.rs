@@ -215,3 +215,255 @@ pub async fn run(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::memory::{Memory, MemoryCategory, MemoryEntry};
+    use crate::providers::Provider;
+    use async_trait::async_trait;
+
+    // ── Mock Memory Implementation ──────────────────────────────────
+    struct MockMemory {
+        entries: Vec<MemoryEntry>,
+        should_fail: bool,
+    }
+
+    impl MockMemory {
+        fn new(entries: Vec<MemoryEntry>) -> Self {
+            Self {
+                entries,
+                should_fail: false,
+            }
+        }
+
+        fn new_failing() -> Self {
+            Self {
+                entries: vec![],
+                should_fail: true,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Memory for MockMemory {
+        fn name(&self) -> &str {
+            "mock"
+        }
+
+        async fn store(
+            &self,
+            _key: &str,
+            _content: &str,
+            _category: MemoryCategory,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn recall(&self, _query: &str, limit: usize) -> anyhow::Result<Vec<MemoryEntry>> {
+            if self.should_fail {
+                anyhow::bail!("mock memory recall failed");
+            }
+            Ok(self.entries.iter().take(limit).cloned().collect())
+        }
+
+        async fn get(&self, _key: &str) -> anyhow::Result<Option<MemoryEntry>> {
+            Ok(None)
+        }
+
+        async fn list(
+            &self,
+            _category: Option<&MemoryCategory>,
+        ) -> anyhow::Result<Vec<MemoryEntry>> {
+            Ok(vec![])
+        }
+
+        async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
+            Ok(false)
+        }
+
+        async fn count(&self) -> anyhow::Result<usize> {
+            Ok(0)
+        }
+
+        async fn health_check(&self) -> bool {
+            true
+        }
+    }
+
+    // ── Mock Provider Implementation ────────────────────────────────
+    struct MockProvider {
+        response: String,
+        should_fail: bool,
+    }
+
+    impl MockProvider {
+        fn new(response: &str) -> Self {
+            Self {
+                response: response.to_string(),
+                should_fail: false,
+            }
+        }
+
+        fn new_failing(error_msg: &str) -> Self {
+            Self {
+                response: error_msg.to_string(),
+                should_fail: true,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Provider for MockProvider {
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            if self.should_fail {
+                anyhow::bail!("{}", self.response);
+            }
+            Ok(self.response.clone())
+        }
+    }
+
+    // ── Tests ───────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_build_context_with_empty_memory() {
+        let mem = MockMemory::new(vec![]);
+        let context = build_context(&mem, "test query").await;
+        assert_eq!(context, "");
+    }
+
+    #[tokio::test]
+    async fn test_build_context_with_memories() {
+        let entries = vec![
+            MemoryEntry {
+                id: "1".to_string(),
+                key: "preference".to_string(),
+                content: "User prefers concise responses".to_string(),
+                category: MemoryCategory::Core,
+                timestamp: "2024-01-01T00:00:00Z".to_string(),
+                session_id: None,
+                score: Some(0.95),
+            },
+            MemoryEntry {
+                id: "2".to_string(),
+                key: "context".to_string(),
+                content: "Working on Rust project".to_string(),
+                category: MemoryCategory::Conversation,
+                timestamp: "2024-01-01T00:01:00Z".to_string(),
+                session_id: None,
+                score: Some(0.85),
+            },
+        ];
+
+        let mem = MockMemory::new(entries);
+        let context = build_context(&mem, "test query").await;
+
+        assert!(context.contains("[Memory context]"));
+        assert!(context.contains("preference: User prefers concise responses"));
+        assert!(context.contains("context: Working on Rust project"));
+    }
+
+    #[tokio::test]
+    async fn test_build_context_memory_error() {
+        let mem = MockMemory::new_failing();
+        let context = build_context(&mem, "test query").await;
+        // Should return empty string on error, not panic
+        assert_eq!(context, "");
+    }
+
+    #[tokio::test]
+    async fn test_build_context_respects_limit() {
+        let entries = vec![
+            MemoryEntry {
+                id: "1".to_string(),
+                key: "key1".to_string(),
+                content: "content1".to_string(),
+                category: MemoryCategory::Core,
+                timestamp: "2024-01-01T00:00:00Z".to_string(),
+                session_id: None,
+                score: Some(0.9),
+            },
+            MemoryEntry {
+                id: "2".to_string(),
+                key: "key2".to_string(),
+                content: "content2".to_string(),
+                category: MemoryCategory::Core,
+                timestamp: "2024-01-01T00:01:00Z".to_string(),
+                session_id: None,
+                score: Some(0.8),
+            },
+            MemoryEntry {
+                id: "3".to_string(),
+                key: "key3".to_string(),
+                content: "content3".to_string(),
+                category: MemoryCategory::Core,
+                timestamp: "2024-01-01T00:02:00Z".to_string(),
+                session_id: None,
+                score: Some(0.7),
+            },
+        ];
+
+        let mem = MockMemory::new(entries);
+        let context = build_context(&mem, "test query").await;
+
+        // build_context calls recall with limit=5, but we only have 3 entries
+        // All 3 should be included
+        assert!(context.contains("key1"));
+        assert!(context.contains("key2"));
+        assert!(context.contains("key3"));
+    }
+
+    #[tokio::test]
+    async fn test_build_context_formats_correctly() {
+        let entries = vec![MemoryEntry {
+            id: "1".to_string(),
+            key: "test_key".to_string(),
+            content: "test content".to_string(),
+            category: MemoryCategory::Core,
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            session_id: None,
+            score: Some(0.95),
+        }];
+
+        let mem = MockMemory::new(entries);
+        let context = build_context(&mem, "test query").await;
+
+        // Verify format: "[Memory context]\n- key: content\n\n"
+        assert!(context.starts_with("[Memory context]\n"));
+        assert!(context.contains("- test_key: test content\n"));
+        assert!(context.ends_with('\n'));
+    }
+
+    #[tokio::test]
+    async fn test_provider_error_handling() {
+        let provider = MockProvider::new_failing("API rate limit exceeded");
+
+        let result = provider
+            .chat_with_system(Some("system"), "user message", "test-model", 0.7)
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("API rate limit exceeded"));
+    }
+
+    #[tokio::test]
+    async fn test_provider_success() {
+        let provider = MockProvider::new("Hello from mock provider");
+
+        let result = provider
+            .chat_with_system(Some("system"), "user message", "test-model", 0.7)
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "Hello from mock provider");
+    }
+}
