@@ -10,9 +10,19 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// How the Gemini credential was obtained — determines the HTTP auth method.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum GeminiAuthMethod {
+    /// Traditional API key: sent as `?key=` query parameter.
+    ApiKey,
+    /// OAuth access token from Gemini CLI: sent as `Authorization: Bearer`.
+    OAuth,
+}
+
 /// Gemini provider supporting multiple authentication methods.
 pub struct GeminiProvider {
     api_key: Option<String>,
+    auth_method: GeminiAuthMethod,
     client: Client,
 }
 
@@ -102,14 +112,23 @@ impl GeminiProvider {
     /// 3. `GOOGLE_API_KEY` environment variable
     /// 4. Gemini CLI OAuth tokens (`~/.gemini/oauth_creds.json`)
     pub fn new(api_key: Option<&str>) -> Self {
-        let resolved_key = api_key
-            .map(String::from)
-            .or_else(|| std::env::var("GEMINI_API_KEY").ok())
-            .or_else(|| std::env::var("GOOGLE_API_KEY").ok())
-            .or_else(Self::try_load_gemini_cli_token);
+        // Resolve credential with source tracking so we know which HTTP auth
+        // method to use at request time.
+        let (resolved_key, auth_method) = if let Some(key) = api_key {
+            (Some(key.to_string()), GeminiAuthMethod::ApiKey)
+        } else if let Ok(key) = std::env::var("GEMINI_API_KEY") {
+            (Some(key), GeminiAuthMethod::ApiKey)
+        } else if let Ok(key) = std::env::var("GOOGLE_API_KEY") {
+            (Some(key), GeminiAuthMethod::ApiKey)
+        } else if let Some(token) = Self::try_load_gemini_cli_token() {
+            (Some(token), GeminiAuthMethod::OAuth)
+        } else {
+            (None, GeminiAuthMethod::ApiKey)
+        };
 
         Self {
             api_key: resolved_key,
+            auth_method,
             client: Client::builder()
                 .timeout(std::time::Duration::from_secs(120))
                 .connect_timeout(std::time::Duration::from_secs(10))
@@ -166,16 +185,18 @@ impl GeminiProvider {
         if self.api_key.is_none() {
             return "none";
         }
-        if std::env::var("GEMINI_API_KEY").is_ok() {
-            return "GEMINI_API_KEY env var";
+        match self.auth_method {
+            GeminiAuthMethod::OAuth => "Gemini CLI OAuth",
+            GeminiAuthMethod::ApiKey => {
+                if std::env::var("GEMINI_API_KEY").is_ok() {
+                    "GEMINI_API_KEY env var"
+                } else if std::env::var("GOOGLE_API_KEY").is_ok() {
+                    "GOOGLE_API_KEY env var"
+                } else {
+                    "config"
+                }
+            }
         }
-        if std::env::var("GOOGLE_API_KEY").is_ok() {
-            return "GOOGLE_API_KEY env var";
-        }
-        if Self::has_cli_credentials() {
-            return "Gemini CLI OAuth";
-        }
-        "config"
     }
 }
 
@@ -188,7 +209,7 @@ impl Provider for GeminiProvider {
         model: &str,
         temperature: f64,
     ) -> anyhow::Result<String> {
-        let api_key = self.api_key.as_ref().ok_or_else(|| {
+        let credential = self.api_key.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
                 "Gemini API key not found. Options:\n\
                  1. Set GEMINI_API_KEY env var\n\
@@ -228,11 +249,27 @@ impl Provider for GeminiProvider {
             format!("models/{model}")
         };
 
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
-        );
+        // API keys use `?key=` query param; OAuth tokens use Bearer header.
+        let (url, bearer) = match self.auth_method {
+            GeminiAuthMethod::ApiKey => (
+                format!(
+                    "https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={credential}"
+                ),
+                None,
+            ),
+            GeminiAuthMethod::OAuth => (
+                format!(
+                    "https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent"
+                ),
+                Some(credential.as_str()),
+            ),
+        };
 
-        let response = self.client.post(&url).json(&request).send().await?;
+        let mut req = self.client.post(&url).json(&request);
+        if let Some(token) = bearer {
+            req = req.bearer_auth(token);
+        }
+        let response = req.send().await?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -273,6 +310,13 @@ mod tests {
         let provider = GeminiProvider::new(Some("test-api-key"));
         assert!(provider.api_key.is_some());
         assert_eq!(provider.api_key.as_deref(), Some("test-api-key"));
+        assert_eq!(provider.auth_method, GeminiAuthMethod::ApiKey);
+    }
+
+    #[test]
+    fn explicit_key_uses_api_key_auth() {
+        let provider = GeminiProvider::new(Some("AIza-test-key"));
+        assert_eq!(provider.auth_method, GeminiAuthMethod::ApiKey);
     }
 
     #[test]
@@ -288,10 +332,34 @@ mod tests {
     #[test]
     fn auth_source_reports_correctly() {
         let provider = GeminiProvider::new(Some("explicit-key"));
-        // With explicit key, should report "config" (unless CLI credentials exist)
+        // With explicit key, should report "config" (unless env vars are set)
         let source = provider.auth_source();
-        // Should be either "config" or "Gemini CLI OAuth" if CLI is configured
-        assert!(source == "config" || source == "Gemini CLI OAuth");
+        assert!(
+            source == "config"
+                || source == "GEMINI_API_KEY env var"
+                || source == "GOOGLE_API_KEY env var"
+        );
+    }
+
+    #[test]
+    fn auth_source_none_without_credentials() {
+        // Without any env vars or CLI creds, provider with no key reports "none"
+        let provider = GeminiProvider {
+            api_key: None,
+            auth_method: GeminiAuthMethod::ApiKey,
+            client: Client::new(),
+        };
+        assert_eq!(provider.auth_source(), "none");
+    }
+
+    #[test]
+    fn auth_source_oauth_when_oauth_method() {
+        let provider = GeminiProvider {
+            api_key: Some("ya29.test-oauth-token".into()),
+            auth_method: GeminiAuthMethod::OAuth,
+            client: Client::new(),
+        };
+        assert_eq!(provider.auth_source(), "Gemini CLI OAuth");
     }
 
     #[test]
