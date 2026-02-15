@@ -333,10 +333,12 @@ async fn handle_whatsapp_verify(
         return (StatusCode::NOT_FOUND, "WhatsApp not configured".to_string());
     };
 
-    // Verify the token matches
-    if params.mode.as_deref() == Some("subscribe")
-        && params.verify_token.as_deref() == Some(wa.verify_token())
-    {
+    // Verify the token matches (constant-time comparison to prevent timing attacks)
+    let token_matches = params
+        .verify_token
+        .as_deref()
+        .is_some_and(|t| constant_time_eq(t, wa.verify_token()));
+    if params.mode.as_deref() == Some("subscribe") && token_matches {
         if let Some(ch) = params.challenge {
             tracing::info!("WhatsApp webhook verified successfully");
             return (StatusCode::OK, ch);
@@ -412,7 +414,10 @@ async fn handle_whatsapp_message(State(state): State<AppState>, body: Bytes) -> 
             Err(e) => {
                 tracing::error!("LLM error for WhatsApp message: {e:#}");
                 let _ = wa
-                    .send("Sorry, I couldn't process your message right now.", &msg.sender)
+                    .send(
+                        "Sorry, I couldn't process your message right now.",
+                        &msg.sender,
+                    )
                     .await;
             }
         }
