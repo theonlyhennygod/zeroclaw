@@ -500,7 +500,7 @@ mod tests {
     fn invalid_target_applescript_injection() {
         // Various injection attempts
         assert!(!is_valid_imessage_target(r#"test" & quit"#));
-        assert!(!is_valid_imessage_target(r#"test\ndo shell script"#));
+        assert!(!is_valid_imessage_target(r"test\ndo shell script"));
         assert!(!is_valid_imessage_target("test\"; malicious code; \""));
     }
 
