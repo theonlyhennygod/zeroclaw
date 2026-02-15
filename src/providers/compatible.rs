@@ -324,8 +324,32 @@ impl Provider for OpenAiCompatibleProvider {
             .await?;
 
         if !response.status().is_success() {
-            let error = response.text().await?;
-            anyhow::bail!("{} API error: {error}", self.name);
+            let status = response.status();
+
+            // Mirror chat_with_system: 404 may mean this provider uses the Responses API
+            if status == reqwest::StatusCode::NOT_FOUND {
+                // Extract system prompt and last user message for responses fallback
+                let system = messages.iter().find(|m| m.role == "system");
+                let last_user = messages.iter().rfind(|m| m.role == "user");
+                if let Some(user_msg) = last_user {
+                    return self
+                        .chat_via_responses(
+                            api_key,
+                            system.map(|m| m.content.as_str()),
+                            &user_msg.content,
+                            model,
+                        )
+                        .await
+                        .map_err(|responses_err| {
+                            anyhow::anyhow!(
+                                "{} API error (chat completions unavailable; responses fallback failed: {responses_err})",
+                                self.name
+                            )
+                        });
+                }
+            }
+
+            return Err(super::api_error(&self.name, response).await);
         }
 
         let chat_response: ApiChatResponse = response.json().await?;
