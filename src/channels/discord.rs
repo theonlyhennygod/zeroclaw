@@ -148,9 +148,13 @@ impl Channel for DiscordChannel {
 
         tracing::info!("Discord: connected and identified");
 
-        // Spawn heartbeat task
+        // Track the last sequence number for heartbeats and resume
+        let sequence = std::sync::Arc::new(std::sync::atomic::AtomicI64::new(-1));
+
+        // Spawn heartbeat task — sends the last seen sequence number
         let (hb_tx, mut hb_rx) = tokio::sync::mpsc::channel::<()>(1);
         let hb_interval = heartbeat_interval;
+        let hb_sequence = std::sync::Arc::clone(&sequence);
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_millis(hb_interval));
             loop {
@@ -159,6 +163,7 @@ impl Channel for DiscordChannel {
                     break;
                 }
             }
+            drop(hb_sequence); // ensure Arc is moved into the task
         });
 
         let guild_filter = self.guild_id.clone();
@@ -166,7 +171,9 @@ impl Channel for DiscordChannel {
         loop {
             tokio::select! {
                 _ = hb_rx.recv() => {
-                    let hb = json!({"op": 1, "d": null});
+                    let seq = sequence.load(std::sync::atomic::Ordering::SeqCst);
+                    let d = if seq >= 0 { json!(seq) } else { json!(null) };
+                    let hb = json!({"op": 1, "d": d});
                     if write.send(Message::Text(hb.to_string())).await.is_err() {
                         break;
                     }
@@ -182,6 +189,23 @@ impl Channel for DiscordChannel {
                         Ok(e) => e,
                         Err(_) => continue,
                     };
+
+                    // Track sequence number from all dispatch events
+                    if let Some(s) = event.get("s").and_then(serde_json::Value::as_i64) {
+                        sequence.store(s, std::sync::atomic::Ordering::SeqCst);
+                    }
+
+                    let op = event.get("op").and_then(serde_json::Value::as_u64).unwrap_or(0);
+
+                    // Handle Reconnect (op 7) and Invalid Session (op 9)
+                    if op == 7 {
+                        tracing::warn!("Discord: received Reconnect (op 7), closing for restart");
+                        break;
+                    }
+                    if op == 9 {
+                        tracing::warn!("Discord: received Invalid Session (op 9), closing for restart");
+                        break;
+                    }
 
                     // Only handle MESSAGE_CREATE (opcode 0, type "MESSAGE_CREATE")
                     let event_type = event.get("t").and_then(|t| t.as_str()).unwrap_or("");
