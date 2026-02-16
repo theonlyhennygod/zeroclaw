@@ -81,34 +81,10 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Detect Rust source changes
-        id: rust_changes
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE="${{ github.event.pull_request.base.sha }}"
-            CHANGED="$(git diff --name-only "$BASE" HEAD -- '*.rs' || true)"
-          else
-            CHANGED="$(git diff --name-only "${{ github.event.before }}" HEAD -- '*.rs' || true)"
-          fi
-
-          if [ -z "$CHANGED" ]; then
-            echo "has_rust_changes=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "has_rust_changes=true" >> "$GITHUB_OUTPUT"
       - name: Run rustfmt
-        if: steps.rust_changes.outputs.has_rust_changes == 'true'
         run: cargo fmt --all -- --check
       - name: Run clippy
-        if: steps.rust_changes.outputs.has_rust_changes == 'true'
-        run: cargo clippy --all-targets -- -D warnings
-      - name: Skip rust lint (no Rust changes)
-        if: steps.rust_changes.outputs.has_rust_changes != 'true'
-        run: echo "No Rust source changes detected; skipping rustfmt and clippy."
+        run: cargo clippy --locked --all-targets -- -D warnings
 
   test:
     name: Test
@@ -121,7 +97,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --locked --verbose
 
   build:
     name: Build (Smoke)
