@@ -63,7 +63,7 @@ impl Tool for ShellTool {
             .ok_or_else(|| anyhow::anyhow!("Missing 'command' parameter"))?;
         let approved = args
             .get("approved")
-            .and_then(|v| v.as_bool())
+            .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
 
         if self.security.is_rate_limited() {
@@ -344,7 +344,7 @@ mod tests {
 
         let tool = ShellTool::new(security.clone(), test_runtime());
         let denied = tool
-            .execute(json!({"command": "touch zeroclaw_shell_approval_test"}))
+            .execute(json!({"command": "touch crabclaw_shell_approval_test"}))
             .await
             .unwrap();
         assert!(!denied.success);
@@ -356,13 +356,13 @@ mod tests {
 
         let allowed = tool
             .execute(json!({
-                "command": "touch zeroclaw_shell_approval_test",
+                "command": "touch crabclaw_shell_approval_test",
                 "approved": true
             }))
             .await
             .unwrap();
         assert!(allowed.success);
 
-        let _ = std::fs::remove_file(std::env::temp_dir().join("zeroclaw_shell_approval_test"));
+        let _ = std::fs::remove_file(std::env::temp_dir().join("crabclaw_shell_approval_test"));
     }
 }

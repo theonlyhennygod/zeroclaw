@@ -112,8 +112,7 @@ pub trait Provider: Send + Sync {
         let last_user = messages
             .iter()
             .rfind(|m| m.role == "user")
-            .map(|m| m.content.as_str())
-            .unwrap_or("");
+            .map_or("", |m| m.content.as_str());
         self.chat_with_system(system, last_user, model, temperature)
             .await
     }

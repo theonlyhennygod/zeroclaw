@@ -329,11 +329,11 @@ pub struct ObservabilityConfig {
     /// "none" | "log" | "prometheus" | "otel"
     pub backend: String,
 
-    /// OTLP endpoint (e.g. "http://localhost:4318"). Only used when backend = "otel".
+    /// OTLP endpoint (e.g. "<http://localhost:4318>"). Only used when backend = "otel".
     #[serde(default)]
     pub otel_endpoint: Option<String>,
 
-    /// Service name reported to the OTel collector. Defaults to "zeroclaw".
+    /// Service name reported to the `OTel` collector. Defaults to "crabclaw".
     #[serde(default)]
     pub otel_service_name: Option<String>,
 }
@@ -471,10 +471,12 @@ fn default_docker_network() -> String {
     "none".into()
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn default_docker_memory_limit_mb() -> Option<u64> {
     Some(512)
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn default_docker_cpu_limit() -> Option<f64> {
     Some(1.0)
 }
@@ -791,9 +793,9 @@ pub struct IrcConfig {
     pub allowed_users: Vec<String>,
     /// Server password (for bouncers like ZNC)
     pub server_password: Option<String>,
-    /// NickServ IDENTIFY password
+    /// `NickServ` IDENTIFY password
     pub nickserv_password: Option<String>,
-    /// SASL PLAIN password (IRCv3)
+    /// SASL PLAIN password (`IRCv3`)
     pub sasl_password: Option<String>,
     /// Verify TLS certificate (default: true)
     pub verify_tls: Option<bool>,
@@ -809,11 +811,11 @@ impl Default for Config {
     fn default() -> Self {
         let home =
             UserDirs::new().map_or_else(|| PathBuf::from("."), |u| u.home_dir().to_path_buf());
-        let zeroclaw_dir = home.join(".zeroclaw");
+        let crabclaw_dir = home.join(".crabclaw");
 
         Self {
-            workspace_dir: zeroclaw_dir.join("workspace"),
-            config_path: zeroclaw_dir.join("config.toml"),
+            workspace_dir: crabclaw_dir.join("workspace"),
+            config_path: crabclaw_dir.join("config.toml"),
             api_key: None,
             default_provider: Some("openrouter".to_string()),
             default_model: Some("anthropic/claude-sonnet-4-20250514".to_string()),
@@ -841,12 +843,12 @@ impl Config {
         let home = UserDirs::new()
             .map(|u| u.home_dir().to_path_buf())
             .context("Could not find home directory")?;
-        let zeroclaw_dir = home.join(".zeroclaw");
-        let config_path = zeroclaw_dir.join("config.toml");
+        let crabclaw_dir = home.join(".crabclaw");
+        let config_path = crabclaw_dir.join("config.toml");
 
-        if !zeroclaw_dir.exists() {
-            fs::create_dir_all(&zeroclaw_dir).context("Failed to create .zeroclaw directory")?;
-            fs::create_dir_all(zeroclaw_dir.join("workspace"))
+        if !crabclaw_dir.exists() {
+            fs::create_dir_all(&crabclaw_dir).context("Failed to create .crabclaw directory")?;
+            fs::create_dir_all(crabclaw_dir.join("workspace"))
                 .context("Failed to create workspace directory")?;
         }
 
@@ -856,13 +858,15 @@ impl Config {
             let mut config: Config =
                 toml::from_str(&contents).context("Failed to parse config file")?;
             // Set computed paths that are skipped during serialization
-            config.config_path = config_path.clone();
-            config.workspace_dir = zeroclaw_dir.join("workspace");
+            config.config_path.clone_from(&config_path);
+            config.workspace_dir = crabclaw_dir.join("workspace");
             Ok(config)
         } else {
-            let mut config = Config::default();
-            config.config_path = config_path.clone();
-            config.workspace_dir = zeroclaw_dir.join("workspace");
+            let config = Config {
+                config_path: config_path.clone(),
+                workspace_dir: crabclaw_dir.join("workspace"),
+                ..Default::default()
+            };
             config.save()?;
             Ok(config)
         }
@@ -1187,7 +1191,7 @@ default_temperature = 0.7
 
     #[test]
     fn config_save_and_load_tmpdir() {
-        let dir = std::env::temp_dir().join("zeroclaw_test_config");
+        let dir = std::env::temp_dir().join("crabclaw_test_config");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
 
@@ -1230,14 +1234,16 @@ default_temperature = 0.7
     #[test]
     fn config_save_atomic_cleanup() {
         let dir =
-            std::env::temp_dir().join(format!("zeroclaw_test_config_{}", uuid::Uuid::new_v4()));
+            std::env::temp_dir().join(format!("crabclaw_test_config_{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
 
         let config_path = dir.join("config.toml");
-        let mut config = Config::default();
-        config.workspace_dir = dir.join("workspace");
-        config.config_path = config_path.clone();
-        config.default_model = Some("model-a".into());
+        let mut config = Config {
+            workspace_dir: dir.join("workspace"),
+            config_path: config_path.clone(),
+            default_model: Some("model-a".into()),
+            ..Default::default()
+        };
 
         config.save().unwrap();
         assert!(config_path.exists());
@@ -1253,7 +1259,11 @@ default_temperature = 0.7
             .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
             .collect();
         assert!(!names.iter().any(|name| name.contains(".tmp-")));
-        assert!(!names.iter().any(|name| name.ends_with(".bak")));
+        assert!(!names.iter().any(|name| {
+            std::path::Path::new(name)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("bak"))
+        }));
 
         let _ = fs::remove_dir_all(&dir);
     }

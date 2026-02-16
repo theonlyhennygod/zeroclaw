@@ -267,7 +267,7 @@ impl Provider for GeminiProvider {
                  1. Set GEMINI_API_KEY env var\n\
                  2. Run `gemini` CLI to authenticate (tokens will be reused)\n\
                  3. Get an API key from https://aistudio.google.com/app/apikey\n\
-                 4. Run `zeroclaw onboard` to configure"
+                 4. Run `crabclaw onboard` to configure"
             )
         })?;
 

@@ -169,6 +169,7 @@ fn skip_env_assignments(s: &str) -> &str {
 
 impl SecurityPolicy {
     /// Classify command risk. Any high-risk segment marks the whole command high.
+    #[allow(clippy::too_many_lines)]
     pub fn command_risk_level(&self, command: &str) -> CommandRiskLevel {
         let mut normalized = command.to_string();
         for sep in ["&&", "||"] {
@@ -198,7 +199,7 @@ impl SecurityPolicy {
                 .unwrap_or("")
                 .to_ascii_lowercase();
 
-            let args: Vec<String> = words.map(|w| w.to_ascii_lowercase()).collect();
+            let args: Vec<String> = words.map(str::to_ascii_lowercase).collect();
             let joined_segment = cmd_part.to_ascii_lowercase();
 
             // High-risk commands

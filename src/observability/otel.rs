@@ -27,13 +27,13 @@ pub struct OtelObserver {
 }
 
 impl OtelObserver {
-    /// Create a new OTel observer exporting to the given OTLP endpoint.
+    /// Create a new `OTel` observer exporting to the given OTLP endpoint.
     ///
     /// Uses HTTP/protobuf transport (port 4318 by default).
     /// Falls back to `http://localhost:4318` if no endpoint is provided.
     pub fn new(endpoint: Option<&str>, service_name: Option<&str>) -> Result<Self, String> {
         let endpoint = endpoint.unwrap_or("http://localhost:4318");
-        let service_name = service_name.unwrap_or("zeroclaw");
+        let service_name = service_name.unwrap_or("crabclaw");
 
         // ── Trace exporter ──────────────────────────────────────
         let span_exporter = opentelemetry_otlp::SpanExporter::builder()
@@ -44,9 +44,11 @@ impl OtelObserver {
 
         let tracer_provider = SdkTracerProvider::builder()
             .with_batch_exporter(span_exporter)
-            .with_resource(opentelemetry_sdk::Resource::builder()
-                .with_service_name(service_name.to_string())
-                .build())
+            .with_resource(
+                opentelemetry_sdk::Resource::builder()
+                    .with_service_name(service_name.to_string())
+                    .build(),
+            )
             .build();
 
         global::set_tracer_provider(tracer_provider.clone());
@@ -58,77 +60,79 @@ impl OtelObserver {
             .build()
             .map_err(|e| format!("Failed to create OTLP metric exporter: {e}"))?;
 
-        let metric_reader = opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter)
-            .build();
+        let metric_reader =
+            opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter).build();
 
         let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
             .with_reader(metric_reader)
-            .with_resource(opentelemetry_sdk::Resource::builder()
-                .with_service_name(service_name.to_string())
-                .build())
+            .with_resource(
+                opentelemetry_sdk::Resource::builder()
+                    .with_service_name(service_name.to_string())
+                    .build(),
+            )
             .build();
 
         let meter_provider_clone = meter_provider.clone();
         global::set_meter_provider(meter_provider);
 
         // ── Create metric instruments ────────────────────────────
-        let meter = global::meter("zeroclaw");
+        let meter = global::meter("crabclaw");
 
         let agent_starts = meter
-            .u64_counter("zeroclaw.agent.starts")
+            .u64_counter("crabclaw.agent.starts")
             .with_description("Total agent invocations")
             .build();
 
         let agent_duration = meter
-            .f64_histogram("zeroclaw.agent.duration")
+            .f64_histogram("crabclaw.agent.duration")
             .with_description("Agent invocation duration in seconds")
             .with_unit("s")
             .build();
 
         let tool_calls = meter
-            .u64_counter("zeroclaw.tool.calls")
+            .u64_counter("crabclaw.tool.calls")
             .with_description("Total tool calls")
             .build();
 
         let tool_duration = meter
-            .f64_histogram("zeroclaw.tool.duration")
+            .f64_histogram("crabclaw.tool.duration")
             .with_description("Tool execution duration in seconds")
             .with_unit("s")
             .build();
 
         let channel_messages = meter
-            .u64_counter("zeroclaw.channel.messages")
+            .u64_counter("crabclaw.channel.messages")
             .with_description("Total channel messages")
             .build();
 
         let heartbeat_ticks = meter
-            .u64_counter("zeroclaw.heartbeat.ticks")
+            .u64_counter("crabclaw.heartbeat.ticks")
             .with_description("Total heartbeat ticks")
             .build();
 
         let errors = meter
-            .u64_counter("zeroclaw.errors")
+            .u64_counter("crabclaw.errors")
             .with_description("Total errors by component")
             .build();
 
         let request_latency = meter
-            .f64_histogram("zeroclaw.request.latency")
+            .f64_histogram("crabclaw.request.latency")
             .with_description("Request latency in seconds")
             .with_unit("s")
             .build();
 
         let tokens_used = meter
-            .u64_counter("zeroclaw.tokens.used")
+            .u64_counter("crabclaw.tokens.used")
             .with_description("Total tokens consumed (monotonic)")
             .build();
 
         let active_sessions = meter
-            .u64_gauge("zeroclaw.sessions.active")
+            .u64_gauge("crabclaw.sessions.active")
             .with_description("Current number of active sessions")
             .build();
 
         let queue_depth = meter
-            .u64_gauge("zeroclaw.queue.depth")
+            .u64_gauge("crabclaw.queue.depth")
             .with_description("Current message queue depth")
             .build();
 
@@ -152,7 +156,7 @@ impl OtelObserver {
 
 impl Observer for OtelObserver {
     fn record_event(&self, event: &ObserverEvent) {
-        let tracer = global::tracer("zeroclaw");
+        let tracer = global::tracer("crabclaw");
 
         match event {
             ObserverEvent::AgentStart { provider, model } => {
@@ -178,12 +182,11 @@ impl Observer for OtelObserver {
                     opentelemetry::trace::SpanBuilder::from_name("agent.invocation")
                         .with_kind(SpanKind::Internal)
                         .with_start_time(start_time)
-                        .with_attributes(vec![
-                            KeyValue::new("duration_s", secs),
-                        ]),
+                        .with_attributes(vec![KeyValue::new("duration_s", secs)]),
                 );
                 if let Some(t) = tokens_used {
-                    span.set_attribute(KeyValue::new("tokens_used", *t as i64));
+                    let tok = i64::try_from(*t).unwrap_or(i64::MAX);
+                    span.set_attribute(KeyValue::new("tokens_used", tok));
                 }
                 span.end();
 
@@ -225,7 +228,8 @@ impl Observer for OtelObserver {
                     KeyValue::new("success", success.to_string()),
                 ];
                 self.tool_calls.add(1, &attrs);
-                self.tool_duration.record(secs, &[KeyValue::new("tool", tool.clone())]);
+                self.tool_duration
+                    .record(secs, &[KeyValue::new("tool", tool.clone())]);
             }
             ObserverEvent::ChannelMessage { channel, direction } => {
                 self.channel_messages.add(
@@ -252,7 +256,8 @@ impl Observer for OtelObserver {
                 span.set_status(Status::error(message.clone()));
                 span.end();
 
-                self.errors.add(1, &[KeyValue::new("component", component.clone())]);
+                self.errors
+                    .add(1, &[KeyValue::new("component", component.clone())]);
             }
         }
     }
@@ -263,13 +268,13 @@ impl Observer for OtelObserver {
                 self.request_latency.record(d.as_secs_f64(), &[]);
             }
             ObserverMetric::TokensUsed(t) => {
-                self.tokens_used.add(*t as u64, &[]);
+                self.tokens_used.add(*t, &[]);
             }
             ObserverMetric::ActiveSessions(s) => {
-                self.active_sessions.record(*s as u64, &[]);
+                self.active_sessions.record(*s, &[]);
             }
             ObserverMetric::QueueDepth(d) => {
-                self.queue_depth.record(*d as u64, &[]);
+                self.queue_depth.record(*d, &[]);
             }
         }
     }
@@ -302,11 +307,8 @@ mod tests {
     fn test_observer() -> OtelObserver {
         // Create with a dummy endpoint — exports will silently fail
         // but the observer itself works fine for recording
-        OtelObserver::new(
-            Some("http://127.0.0.1:19999"),
-            Some("zeroclaw-test"),
-        )
-        .expect("observer creation should not fail with valid endpoint format")
+        OtelObserver::new(Some("http://127.0.0.1:19999"), Some("crabclaw-test"))
+            .expect("observer creation should not fail with valid endpoint format")
     }
 
     #[test]
@@ -367,5 +369,4 @@ mod tests {
         obs.record_event(&ObserverEvent::HeartbeatTick);
         obs.flush();
     }
-
 }

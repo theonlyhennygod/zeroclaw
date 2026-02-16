@@ -44,8 +44,8 @@ impl OpenAiCompatibleProvider {
         }
     }
 
-    /// Build the full URL for chat completions, detecting if base_url already includes the path.
-    /// This allows custom providers with non-standard endpoints (e.g., VolcEngine ARK uses
+    /// Build the full URL for chat completions, detecting if `base_url` already includes the path.
+    /// This allows custom providers with non-standard endpoints (e.g., `VolcEngine` ARK uses
     /// `/api/coding/v3/chat/completions` instead of `/v1/chat/completions`).
     fn chat_completions_url(&self) -> String {
         // If base_url already contains "chat/completions", use it as-is
@@ -56,7 +56,7 @@ impl OpenAiCompatibleProvider {
         }
     }
 
-    /// Build the full URL for responses API, detecting if base_url already includes the path.
+    /// Build the full URL for responses API, detecting if `base_url` already includes the path.
     fn responses_url(&self) -> String {
         // If base_url already contains "responses", use it as-is
         if self.base_url.contains("responses") {
@@ -159,7 +159,7 @@ fn first_nonempty(text: Option<&str>) -> Option<String> {
     })
 }
 
-fn extract_responses_text(response: ResponsesResponse) -> Option<String> {
+fn extract_responses_text(response: &ResponsesResponse) -> Option<String> {
     if let Some(text) = first_nonempty(response.output_text.as_deref()) {
         return Some(text);
     }
@@ -229,7 +229,7 @@ impl OpenAiCompatibleProvider {
 
         let responses: ResponsesResponse = response.json().await?;
 
-        extract_responses_text(responses)
+        extract_responses_text(&responses)
             .ok_or_else(|| anyhow::anyhow!("No response from {} Responses API", self.name))
     }
 }
@@ -245,7 +245,7 @@ impl Provider for OpenAiCompatibleProvider {
     ) -> anyhow::Result<String> {
         let api_key = self.api_key.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
-                "{} API key not set. Run `zeroclaw onboard` or set the appropriate env var.",
+                "{} API key not set. Run `crabclaw onboard` or set the appropriate env var.",
                 self.name
             )
         })?;
@@ -306,7 +306,9 @@ impl Provider for OpenAiCompatibleProvider {
             .map(|c| {
                 // If tool_calls are present, serialize the full message as JSON
                 // so parse_tool_calls can handle the OpenAI-style format
-                if c.message.tool_calls.is_some() && c.message.tool_calls.as_ref().map_or(false, |t| !t.is_empty()) {
+                if c.message.tool_calls.is_some()
+                    && c.message.tool_calls.as_ref().is_some_and(|t| !t.is_empty())
+                {
                     serde_json::to_string(&c.message)
                         .unwrap_or_else(|_| c.message.content.unwrap_or_default())
                 } else {
@@ -325,7 +327,7 @@ impl Provider for OpenAiCompatibleProvider {
     ) -> anyhow::Result<String> {
         let api_key = self.api_key.as_ref().ok_or_else(|| {
             anyhow::anyhow!(
-                "{} API key not set. Run `zeroclaw onboard` or set the appropriate env var.",
+                "{} API key not set. Run `crabclaw onboard` or set the appropriate env var.",
                 self.name
             )
         })?;
@@ -388,7 +390,9 @@ impl Provider for OpenAiCompatibleProvider {
             .map(|c| {
                 // If tool_calls are present, serialize the full message as JSON
                 // so parse_tool_calls can handle the OpenAI-style format
-                if c.message.tool_calls.is_some() && c.message.tool_calls.as_ref().map_or(false, |t| !t.is_empty()) {
+                if c.message.tool_calls.is_some()
+                    && c.message.tool_calls.as_ref().is_some_and(|t| !t.is_empty())
+                {
                     serde_json::to_string(&c.message)
                         .unwrap_or_else(|_| c.message.content.unwrap_or_default())
                 } else {
@@ -448,7 +452,7 @@ mod tests {
             messages: vec![
                 Message {
                     role: "system".to_string(),
-                    content: "You are ZeroClaw".to_string(),
+                    content: "You are CrabClaw".to_string(),
                 },
                 Message {
                     role: "user".to_string(),
@@ -467,7 +471,10 @@ mod tests {
     fn response_deserializes() {
         let json = r#"{"choices":[{"message":{"content":"Hello from Venice!"}}]}"#;
         let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.choices[0].message.content, Some("Hello from Venice!".to_string()));
+        assert_eq!(
+            resp.choices[0].message.content,
+            Some("Hello from Venice!".to_string())
+        );
     }
 
     #[test]
@@ -527,7 +534,7 @@ mod tests {
         let json = r#"{"output_text":"Hello from top-level","output":[]}"#;
         let response: ResponsesResponse = serde_json::from_str(json).unwrap();
         assert_eq!(
-            extract_responses_text(response).as_deref(),
+            extract_responses_text(&response).as_deref(),
             Some("Hello from top-level")
         );
     }
@@ -538,7 +545,7 @@ mod tests {
             r#"{"output":[{"content":[{"type":"output_text","text":"Hello from nested"}]}]}"#;
         let response: ResponsesResponse = serde_json::from_str(json).unwrap();
         assert_eq!(
-            extract_responses_text(response).as_deref(),
+            extract_responses_text(&response).as_deref(),
             Some("Hello from nested")
         );
     }
@@ -548,7 +555,7 @@ mod tests {
         let json = r#"{"output":[{"content":[{"type":"message","text":"Fallback text"}]}]}"#;
         let response: ResponsesResponse = serde_json::from_str(json).unwrap();
         assert_eq!(
-            extract_responses_text(response).as_deref(),
+            extract_responses_text(&response).as_deref(),
             Some("Fallback text")
         );
     }

@@ -23,7 +23,7 @@ const MAX_HISTORY_MESSAGES: usize = 50;
 /// Preserves the system prompt (first message if role=system) and the most recent messages.
 fn trim_history(history: &mut Vec<ChatMessage>) {
     // Nothing to trim if within limit
-    let has_system = history.first().map_or(false, |m| m.role == "system");
+    let has_system = history.first().is_some_and(|m| m.role == "system");
     let non_system_count = if has_system {
         history.len() - 1
     } else {
@@ -34,7 +34,7 @@ fn trim_history(history: &mut Vec<ChatMessage>) {
         return;
     }
 
-    let start = if has_system { 1 } else { 0 };
+    let start = usize::from(has_system);
     let to_remove = non_system_count - MAX_HISTORY_MESSAGES;
     history.drain(start..start + to_remove);
 }
@@ -59,7 +59,10 @@ async fn build_context(mem: &dyn Memory, user_msg: &str) -> String {
 
 /// Find a tool by name in the registry.
 fn find_tool<'a>(tools: &'a [Box<dyn Tool>], name: &str) -> Option<&'a dyn Tool> {
-    tools.iter().find(|t| t.name() == name).map(|t| t.as_ref())
+    tools
+        .iter()
+        .find(|t| t.name() == name)
+        .map(std::convert::AsRef::as_ref)
 }
 
 /// Parse tool calls from an LLM response that uses XML-style function calling.
@@ -90,7 +93,9 @@ fn parse_tool_calls(response: &str) -> (String, Vec<ParsedToolCall>) {
                         .to_string();
 
                     // Arguments in OpenAI format are a JSON string that needs parsing
-                    let arguments = if let Some(args_str) = function.get("arguments").and_then(|v| v.as_str()) {
+                    let arguments = if let Some(args_str) =
+                        function.get("arguments").and_then(|v| v.as_str())
+                    {
                         serde_json::from_str::<serde_json::Value>(args_str)
                             .unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
                     } else {
@@ -115,7 +120,7 @@ fn parse_tool_calls(response: &str) -> (String, Vec<ParsedToolCall>) {
         }
     }
 
-    // Fall back to XML-style <invoke> tag parsing (ZeroClaw's original format)
+    // Fall back to XML-style <invoke> tag parsing (CrabClaw's original format)
     while let Some(start) = remaining.find("<tool_call>") {
         // Everything before the tag is text
         let before = &remaining[..start];
@@ -182,11 +187,7 @@ async fn agent_turn(
         if tool_calls.is_empty() {
             // No tool calls — this is the final response
             history.push(ChatMessage::assistant(&response));
-            return Ok(if text.is_empty() {
-                response
-            } else {
-                text
-            });
+            return Ok(if text.is_empty() { response } else { text });
         }
 
         // Print any text the LLM produced alongside tool calls
@@ -210,7 +211,7 @@ async fn agent_turn(
                         if r.success {
                             r.output
                         } else {
-                            format!("Error: {}", r.error.unwrap_or_else(|| r.output))
+                            format!("Error: {}", r.error.unwrap_or(r.output))
                         }
                     }
                     Err(e) => {
@@ -235,9 +236,7 @@ async fn agent_turn(
 
         // Add assistant message with tool calls + tool results to history
         history.push(ChatMessage::assistant(&response));
-        history.push(ChatMessage::user(format!(
-            "[Tool results]\n{tool_results}"
-        )));
+        history.push(ChatMessage::user(format!("[Tool results]\n{tool_results}")));
     }
 
     anyhow::bail!("Agent exceeded maximum tool iterations ({MAX_TOOL_ITERATIONS})")
@@ -252,7 +251,8 @@ fn build_tool_instructions(tools_registry: &[Box<dyn Tool>]) -> String {
     instructions.push_str("```\n<tool_call>\n{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n</tool_call>\n```\n\n");
     instructions.push_str("You may use multiple tool calls in a single response. ");
     instructions.push_str("After tool execution, results appear in <tool_result> tags. ");
-    instructions.push_str("Continue reasoning with the results until you can give a final answer.\n\n");
+    instructions
+        .push_str("Continue reasoning with the results until you can give a final answer.\n\n");
     instructions.push_str("### Available Tools\n\n");
 
     for tool in tools_registry {
@@ -434,7 +434,7 @@ pub async fn run(
                 .await;
         }
     } else {
-        println!("🦀 ZeroClaw Interactive Mode");
+        println!("🦀 CrabClaw Interactive Mode");
         println!("Type /quit to exit.\n");
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(32);
@@ -553,10 +553,10 @@ mod tests {
 
     #[test]
     fn parse_tool_calls_handles_malformed_json() {
-        let response = r#"<tool_call>
+        let response = r"<tool_call>
 not valid json
 </tool_call>
-Some text after."#;
+Some text after.";
 
         let (text, calls) = parse_tool_calls(response);
         assert!(calls.is_empty());
@@ -596,7 +596,7 @@ After text."#;
     fn parse_tool_calls_handles_openai_format_multiple_calls() {
         let response = r#"{"tool_calls": [{"type": "function", "function": {"name": "file_read", "arguments": "{\"path\": \"a.txt\"}"}}, {"type": "function", "function": {"name": "file_read", "arguments": "{\"path\": \"b.txt\"}"}}]}"#;
 
-        let (text, calls) = parse_tool_calls(response);
+        let (_text, calls) = parse_tool_calls(response);
         assert_eq!(calls.len(), 2);
         assert_eq!(calls[0].name, "file_read");
         assert_eq!(calls[1].name, "file_read");
@@ -646,12 +646,9 @@ After text."#;
         assert_eq!(history[0].content, "system prompt");
         // Trimmed to limit
         assert_eq!(history.len(), MAX_HISTORY_MESSAGES + 1); // +1 for system
-        // Most recent messages preserved
+                                                             // Most recent messages preserved
         let last = &history[history.len() - 1];
-        assert_eq!(
-            last.content,
-            format!("msg {}", MAX_HISTORY_MESSAGES + 19)
-        );
+        assert_eq!(last.content, format!("msg {}", MAX_HISTORY_MESSAGES + 19));
     }
 
     #[test]

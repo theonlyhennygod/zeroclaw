@@ -277,7 +277,7 @@ mod tests {
     #[test]
     fn try_pair_correct_code() {
         let guard = PairingGuard::new(true, &[]);
-        let code = guard.pairing_code().unwrap().to_string();
+        let code = guard.pairing_code().unwrap().clone();
         let token = guard.try_pair(&code).unwrap();
         assert!(token.is_some());
         assert!(token.unwrap().starts_with("zc_"));
@@ -343,7 +343,7 @@ mod tests {
     #[test]
     fn pair_then_authenticate() {
         let guard = PairingGuard::new(true, &[]);
-        let code = guard.pairing_code().unwrap().to_string();
+        let code = guard.pairing_code().unwrap().clone();
         let token = guard.try_pair(&code).unwrap().unwrap();
         assert!(guard.is_authenticated(&token));
         assert!(!guard.is_authenticated("wrong"));
@@ -468,7 +468,7 @@ mod tests {
     #[test]
     fn correct_code_resets_failed_attempts() {
         let guard = PairingGuard::new(true, &[]);
-        let code = guard.pairing_code().unwrap().to_string();
+        let code = guard.pairing_code().unwrap().clone();
         // Fail a few times
         for _ in 0..3 {
             let _ = guard.try_pair("wrong");

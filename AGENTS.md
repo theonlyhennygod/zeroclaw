@@ -1,11 +1,11 @@
-# AGENTS.md — ZeroClaw Agent Coding Guide
+# AGENTS.md — CrabClaw Agent Coding Guide
 
 This file defines the default working protocol for coding agents in this repository.
 Scope: entire repository.
 
 ## 1) Project Snapshot (Read First)
 
-ZeroClaw is a Rust-first autonomous agent runtime optimized for:
+CrabClaw is a Rust-first autonomous agent runtime optimized for:
 
 - high performance
 - high efficiency

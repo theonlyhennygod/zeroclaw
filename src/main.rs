@@ -40,9 +40,9 @@ mod util;
 
 use config::Config;
 
-/// `ZeroClaw` - Zero overhead. Zero compromise. 100% Rust.
+/// `CrabClaw` - Zero overhead. Zero compromise. 100% Rust.
 #[derive(Parser, Debug)]
-#[command(name = "zeroclaw")]
+#[command(name = "crabclaw")]
 #[command(author = "theonlyhennygod")]
 #[command(version = "0.1.0")]
 #[command(about = "The fastest, smallest AI assistant.", long_about = None)]
@@ -176,7 +176,7 @@ enum Commands {
 
 #[derive(Subcommand, Debug)]
 enum MigrateCommands {
-    /// Import memory from an `OpenClaw` workspace into this `ZeroClaw` workspace
+    /// Import memory from an `OpenClaw` workspace into this `CrabClaw` workspace
     Openclaw {
         /// Optional path to `OpenClaw` workspace (defaults to ~/.openclaw/workspace)
         #[arg(long)]
@@ -317,24 +317,24 @@ async fn main() -> Result<()> {
 
         Commands::Gateway { port, host } => {
             if port == 0 {
-                info!("🚀 Starting ZeroClaw Gateway on {host} (random port)");
+                info!("🚀 Starting CrabClaw Gateway on {host} (random port)");
             } else {
-                info!("🚀 Starting ZeroClaw Gateway on {host}:{port}");
+                info!("🚀 Starting CrabClaw Gateway on {host}:{port}");
             }
             gateway::run_gateway(&host, port, config).await
         }
 
         Commands::Daemon { port, host } => {
             if port == 0 {
-                info!("🧠 Starting ZeroClaw Daemon on {host} (random port)");
+                info!("🧠 Starting CrabClaw Daemon on {host} (random port)");
             } else {
-                info!("🧠 Starting ZeroClaw Daemon on {host}:{port}");
+                info!("🧠 Starting CrabClaw Daemon on {host}:{port}");
             }
             daemon::run(config, host, port).await
         }
 
         Commands::Status => {
-            println!("🦀 ZeroClaw Status");
+            println!("🦀 CrabClaw Status");
             println!();
             println!("Version:     {}", env!("CARGO_PKG_VERSION"));
             println!("Workspace:   {}", config.workspace_dir.display());

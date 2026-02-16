@@ -18,7 +18,7 @@ static MSG_SEQ: AtomicU64 = AtomicU64::new(0);
 /// IRC over TLS channel.
 ///
 /// Connects to an IRC server using TLS, joins configured channels,
-/// and forwards PRIVMSG messages to the `ZeroClaw` message bus.
+/// and forwards PRIVMSG messages to the `CrabClaw` message bus.
 /// Supports both channel messages and private messages (DMs).
 pub struct IrcChannel {
     server: String,
@@ -388,7 +388,7 @@ impl Channel for IrcChannel {
         Self::send_raw(&mut writer, &format!("NICK {current_nick}")).await?;
         Self::send_raw(
             &mut writer,
-            &format!("USER {} 0 * :ZeroClaw", self.username),
+            &format!("USER {} 0 * :CrabClaw", self.username),
         )
         .await?;
 
@@ -900,7 +900,7 @@ mod tests {
             "irc.example.com".into(),
             6697,
             "zcbot".into(),
-            Some("zeroclaw".into()),
+            Some("crabclaw".into()),
             vec!["#test".into()],
             vec!["alice".into()],
             Some("serverpass".into()),
@@ -911,7 +911,7 @@ mod tests {
         assert_eq!(ch.server, "irc.example.com");
         assert_eq!(ch.port, 6697);
         assert_eq!(ch.nickname, "zcbot");
-        assert_eq!(ch.username, "zeroclaw");
+        assert_eq!(ch.username, "crabclaw");
         assert_eq!(ch.channels, vec!["#test"]);
         assert_eq!(ch.allowed_users, vec!["alice"]);
         assert_eq!(ch.server_password.as_deref(), Some("serverpass"));
@@ -930,7 +930,7 @@ mod tests {
             server: "irc.example.com".into(),
             port: 6697,
             nickname: "zcbot".into(),
-            username: Some("zeroclaw".into()),
+            username: Some("crabclaw".into()),
             channels: vec!["#test".into(), "#dev".into()],
             allowed_users: vec!["alice".into()],
             server_password: None,
@@ -944,7 +944,7 @@ mod tests {
         assert_eq!(parsed.server, "irc.example.com");
         assert_eq!(parsed.port, 6697);
         assert_eq!(parsed.nickname, "zcbot");
-        assert_eq!(parsed.username.as_deref(), Some("zeroclaw"));
+        assert_eq!(parsed.username.as_deref(), Some("crabclaw"));
         assert_eq!(parsed.channels, vec!["#test", "#dev"]);
         assert_eq!(parsed.allowed_users, vec!["alice"]);
         assert!(parsed.server_password.is_none());
@@ -991,7 +991,7 @@ nickname = "bot"
             6697,
             "zcbot".into(),
             None,
-            vec!["#zeroclaw".into()],
+            vec!["#crabclaw".into()],
             vec!["*".into()],
             None,
             None,

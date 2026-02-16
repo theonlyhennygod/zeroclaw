@@ -29,7 +29,7 @@ impl RouterProvider {
     /// Create a new router with a default provider and optional routes.
     ///
     /// `providers` is a list of (name, provider) pairs. The first one is the default.
-    /// `routes` maps hint names to Route structs containing provider_name and model.
+    /// `routes` maps hint names to Route structs containing `provider_name` and model.
     pub fn new(
         providers: Vec<(String, Box<dyn Provider>)>,
         routes: Vec<(String, Route)>,
@@ -47,16 +47,15 @@ impl RouterProvider {
             .into_iter()
             .filter_map(|(hint, route)| {
                 let index = name_to_index.get(route.provider_name.as_str()).copied();
-                match index {
-                    Some(i) => Some((hint, (i, route.model))),
-                    None => {
-                        tracing::warn!(
-                            hint = hint,
-                            provider = route.provider_name,
-                            "Route references unknown provider, skipping"
-                        );
-                        None
-                    }
+                if let Some(i) = index {
+                    Some((hint, (i, route.model)))
+                } else {
+                    tracing::warn!(
+                        hint = hint,
+                        provider = route.provider_name,
+                        "Route references unknown provider, skipping"
+                    );
+                    None
                 }
             })
             .collect();
@@ -69,11 +68,11 @@ impl RouterProvider {
         }
     }
 
-    /// Resolve a model parameter to a (provider, actual_model) pair.
+    /// Resolve a model parameter to a (provider, `actual_model`) pair.
     ///
     /// If the model starts with "hint:", look up the hint in the route table.
     /// Otherwise, use the default provider with the given model name.
-    /// Resolve a model parameter to a (provider_index, actual_model) pair.
+    /// Resolve a model parameter to a (`provider_index`, `actual_model`) pair.
     fn resolve(&self, model: &str) -> (usize, String) {
         if let Some(hint) = model.strip_prefix("hint:") {
             if let Some((idx, resolved_model)) = self.routes.get(hint) {
@@ -183,8 +182,8 @@ mod tests {
     }
 
     fn make_router(
-        providers: Vec<(&'static str, &'static str)>,
-        routes: Vec<(&str, &str, &str)>,
+        providers: &[(&'static str, &'static str)],
+        routes: &[(&str, &str, &str)],
     ) -> (RouterProvider, Vec<Arc<MockProvider>>) {
         let mocks: Vec<Arc<MockProvider>> = providers
             .iter()
@@ -215,9 +214,10 @@ mod tests {
             })
             .collect();
 
-        let router = RouterProvider::new(provider_list, route_list, "default-model".to_string());
+        let router_provider =
+            RouterProvider::new(provider_list, route_list, "default-model".to_string());
 
-        (router, mocks)
+        (router_provider, mocks)
     }
 
     // Arc<MockProvider> should also be a Provider
@@ -239,8 +239,8 @@ mod tests {
     #[tokio::test]
     async fn routes_hint_to_correct_provider() {
         let (router, mocks) = make_router(
-            vec![("fast", "fast-response"), ("smart", "smart-response")],
-            vec![
+            &[("fast", "fast-response"), ("smart", "smart-response")],
+            &[
                 ("fast", "fast", "llama-3-70b"),
                 ("reasoning", "smart", "claude-opus"),
             ],
@@ -256,8 +256,8 @@ mod tests {
     #[tokio::test]
     async fn routes_fast_hint() {
         let (router, mocks) = make_router(
-            vec![("fast", "fast-response"), ("smart", "smart-response")],
-            vec![("fast", "fast", "llama-3-70b")],
+            &[("fast", "fast-response"), ("smart", "smart-response")],
+            &[("fast", "fast", "llama-3-70b")],
         );
 
         let result = router.chat("hello", "hint:fast", 0.5).await.unwrap();
@@ -269,8 +269,8 @@ mod tests {
     #[tokio::test]
     async fn unknown_hint_falls_back_to_default() {
         let (router, mocks) = make_router(
-            vec![("default", "default-response"), ("other", "other-response")],
-            vec![],
+            &[("default", "default-response"), ("other", "other-response")],
+            &[],
         );
 
         let result = router.chat("hello", "hint:nonexistent", 0.5).await.unwrap();
@@ -283,11 +283,11 @@ mod tests {
     #[tokio::test]
     async fn non_hint_model_uses_default_provider() {
         let (router, mocks) = make_router(
-            vec![
+            &[
                 ("primary", "primary-response"),
                 ("secondary", "secondary-response"),
             ],
-            vec![("code", "secondary", "codellama")],
+            &[("code", "secondary", "codellama")],
         );
 
         let result = router
@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn resolve_preserves_model_for_non_hints() {
-        let (router, _) = make_router(vec![("default", "ok")], vec![]);
+        let (router, _) = make_router(&[("default", "ok")], &[]);
 
         let (idx, model) = router.resolve("gpt-4o");
         assert_eq!(idx, 0);
@@ -311,8 +311,8 @@ mod tests {
     #[test]
     fn resolve_strips_hint_prefix() {
         let (router, _) = make_router(
-            vec![("fast", "ok"), ("smart", "ok")],
-            vec![("reasoning", "smart", "claude-opus")],
+            &[("fast", "ok"), ("smart", "ok")],
+            &[("reasoning", "smart", "claude-opus")],
         );
 
         let (idx, model) = router.resolve("hint:reasoning");
@@ -322,10 +322,7 @@ mod tests {
 
     #[test]
     fn skips_routes_with_unknown_provider() {
-        let (router, _) = make_router(
-            vec![("default", "ok")],
-            vec![("broken", "nonexistent", "model")],
-        );
+        let (router, _) = make_router(&[("default", "ok")], &[("broken", "nonexistent", "model")]);
 
         // Route should not exist
         assert!(!router.routes.contains_key("broken"));
@@ -333,7 +330,7 @@ mod tests {
 
     #[tokio::test]
     async fn warmup_calls_all_providers() {
-        let (router, _) = make_router(vec![("a", "ok"), ("b", "ok")], vec![]);
+        let (router, _) = make_router(&[("a", "ok"), ("b", "ok")], &[]);
 
         // Warmup should not error
         assert!(router.warmup().await.is_ok());
