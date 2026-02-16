@@ -9,7 +9,7 @@ on:
     - cron: "0 6 * * 1" # Weekly on Monday 6am UTC
 
 concurrency:
-  group: security-${{ github.event.pull_request.number || github.sha }}
+  group: security-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:

@@ -39,7 +39,7 @@ Merge-blocking checks should stay small and deterministic. Optional checks are u
 - `Docker`: push to `main`, tag push (`v*`), PRs touching docker/workflow files, manual dispatch
 - `Release`: tag push (`v*`)
 - `Security Audit`: push to `main`, PRs to `main`, weekly schedule
-- `Workflow Sanity`: PR/push when `.github/workflows/**` changes
+- `Workflow Sanity`: PR/push when `.github/workflows/**`, `.github/*.yml`, or `.github/*.yaml` change
 - `PR Labeler`: `pull_request_target` lifecycle events
 - `Auto Response`: issue opened, `pull_request_target` opened
 - `Stale`: daily schedule, manual dispatch

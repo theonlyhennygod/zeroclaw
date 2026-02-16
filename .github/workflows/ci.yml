@@ -80,6 +80,9 @@ jobs:
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - name: Run rustfmt
         run: cargo fmt --all -- --check
@@ -95,6 +98,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
         run: cargo test --locked --verbose
@@ -109,6 +114,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.92
       - uses: Swatinem/rust-cache@v2
       - name: Build release binary
         run: cargo build --release --locked --verbose
