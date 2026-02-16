@@ -57,6 +57,10 @@ hex = "0.4"
 # Async traits
 async-trait = "0.1"
 
+# Streaming support
+async-stream = "0.3"
+futures = "0.3"
+
 # Memory / persistence
 rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
