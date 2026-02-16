@@ -1,0 +1,10 @@
+# Cargo configuration for ZeroClaw
+# This file enables true distro-agnostic binary portability via musl static linking
+
+[target.x86_64-unknown-linux-musl]
+# Build static binaries that work on any Linux distribution
+rustflags = ["-C", "link-arg=-static"]
+
+[target.aarch64-unknown-linux-musl]
+# Build static binaries for ARM64 (aarch64) Linux systems
+rustflags = ["-C", "link-arg=-static"]

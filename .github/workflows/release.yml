@@ -19,18 +19,32 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Musl targets - truly portable, distro-agnostic static binaries
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact: zeroclaw
+            portable: true
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            artifact: zeroclaw
+            portable: true
+          # Traditional glibc targets - for containerized environments
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact: zeroclaw
+            portable: false
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact: zeroclaw
+            portable: false
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact: zeroclaw
+            portable: false
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: zeroclaw.exe
+            portable: false
 
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +54,12 @@ jobs:
           targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Install musl-tools for cross-compilation
+        if: matrix.portable == true
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools musl-dev
 
       - name: Build release
         run: cargo build --release --locked --target ${{ matrix.target }}
@@ -51,6 +71,18 @@ jobs:
           echo "Binary size: $((SIZE / 1024 / 1024))MB ($SIZE bytes)"
           if [ "$SIZE" -gt 5242880 ]; then
             echo "::warning::Binary exceeds 5MB target"
+          fi
+
+      - name: Verify static linking (portable builds)
+        if: matrix.portable == true
+        run: |
+          echo "Verifying static linking for portable binary..."
+          file target/${{ matrix.target }}/release/${{ matrix.artifact }}
+          if ldd target/${{ matrix.target }}/release/${{ matrix.artifact }} 2>&1 | grep -q "not a dynamic executable"; then
+            echo "Binary is statically linked - portable across all Linux distributions!"
+          else
+            echo "::error::Binary is not statically linked - not portable!"
+            exit 1
           fi
 
       - name: Package (Unix)
