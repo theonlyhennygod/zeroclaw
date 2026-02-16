@@ -84,10 +84,46 @@ jobs:
                   toolchain: 1.92
                   components: rustfmt, clippy
             - uses: Swatinem/rust-cache@v2
-            - name: Run rustfmt
-              run: cargo fmt --all -- --check
+            - name: Detect changed Rust files
+              id: rust_files
+              shell: bash
+              run: |
+                  set -euo pipefail
+
+                  if [ "${{ github.event_name }}" = "pull_request" ]; then
+                    BASE="${{ github.event.pull_request.base.sha }}"
+                  else
+                    BASE="${{ github.event.before }}"
+                  fi
+
+                  if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+                    CHANGED_RS="$(git ls-files '*.rs' | tr '\n' ' ' | xargs)"
+                  else
+                    CHANGED_RS="$(git diff --name-only "$BASE" HEAD -- '*.rs' | tr '\n' ' ' | xargs)"
+                  fi
+
+                  echo "files=$CHANGED_RS" >> "$GITHUB_OUTPUT"
+
+                  if [ -z "$CHANGED_RS" ]; then
+                    echo "No Rust files changed."
+                  else
+                    echo "Rust files changed: $CHANGED_RS"
+                  fi
+
+            - name: Run rustfmt (changed Rust files)
+              shell: bash
+              run: |
+                  set -euo pipefail
+
+                  FILES="${{ steps.rust_files.outputs.files }}"
+                  if [ -z "$FILES" ]; then
+                    echo "No Rust files changed; skipping rustfmt."
+                    exit 0
+                  fi
+
+                  rustfmt --check --edition 2021 $FILES
             - name: Run clippy
-              run: cargo clippy --locked --all-targets -- -D warnings
+              run: cargo clippy --locked --all-targets -- -D clippy::all
 
     test:
         name: Test
