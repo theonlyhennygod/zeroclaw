@@ -89,23 +89,39 @@ jobs:
 
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             BASE="${{ github.event.pull_request.base.sha }}"
-            CHANGED="$(git diff --name-only "$BASE" HEAD -- '*.rs' || true)"
           else
-            CHANGED="$(git diff --name-only "${{ github.event.before }}" HEAD -- '*.rs' || true)"
+            BASE="${{ github.event.before }}"
           fi
 
-          if [ -z "$CHANGED" ]; then
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            CHANGED_RS="$(git ls-files '*.rs' | tr '\n' ' ' | xargs)"
+          else
+            CHANGED_RS="$(git diff --name-only "$BASE" HEAD -- '*.rs' | tr '\n' ' ' | xargs)"
+          fi
+
+          echo "files=$CHANGED_RS" >> "$GITHUB_OUTPUT"
+
+          if [ -z "$CHANGED_RS" ]; then
             echo "has_rust_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_rust_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Run rustfmt
+        if: steps.rust_changes.outputs.has_rust_changes == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FILES="${{ steps.rust_changes.outputs.files }}"
+          if [ -z "$FILES" ]; then
+            echo "No Rust source changes detected; skipping rustfmt."
             exit 0
           fi
 
-          echo "has_rust_changes=true" >> "$GITHUB_OUTPUT"
-      - name: Run rustfmt
-        if: steps.rust_changes.outputs.has_rust_changes == 'true'
-        run: cargo fmt --all -- --check
+          rustfmt --check --edition 2021 $FILES
       - name: Run clippy
         if: steps.rust_changes.outputs.has_rust_changes == 'true'
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D clippy::all
       - name: Skip rust lint (no Rust changes)
         if: steps.rust_changes.outputs.has_rust_changes != 'true'
         run: echo "No Rust source changes detected; skipping rustfmt and clippy."
