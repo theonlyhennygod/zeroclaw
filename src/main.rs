@@ -15,6 +15,7 @@ use tracing_subscriber::FmtSubscriber;
 
 mod agent;
 mod channels;
+mod concurrency;
 mod config;
 mod cron;
 mod daemon;

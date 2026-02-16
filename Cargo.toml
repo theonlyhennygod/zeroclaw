@@ -53,14 +53,23 @@ chacha20poly1305 = "0.10"
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
+base64 = "0.22"
 
 # Async traits
 async-trait = "0.1"
 
 # Memory / persistence
 rusqlite = { version = "0.32", features = ["bundled"] }
+deadpool = { version = "0.12", default-features = false, features = ["managed", "rt_tokio_1"] }
+deadpool-sqlite = { version = "0.9", features = ["rt_tokio_1"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 cron = "0.12"
+dashmap = { version = "6.1", default-features = false, features = ["inline"] }
+num_cpus = "1.16"
+
+# Security
+regex = "1.11"
+url = "2.5"
 
 # Interactive CLI prompts
 dialoguer = { version = "0.11", features = ["fuzzy-select"] }
@@ -106,3 +115,12 @@ panic = "abort"
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3.14"
+
+[features]
+default = []
+benchmark = []
+
+[[example]]
+name = "benchmark"
+path = "examples/benchmark.rs"
+required-features = ["benchmark"]

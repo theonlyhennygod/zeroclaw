@@ -2,12 +2,18 @@ pub mod chunker;
 pub mod embeddings;
 pub mod hygiene;
 pub mod markdown;
+pub mod pool;
+pub mod pooled_sqlite;
 pub mod sqlite;
+pub mod tiered_cache;
 pub mod traits;
 pub mod vector;
 
 pub use markdown::MarkdownMemory;
+pub use pool::{SqlitePool, PoolConfig, PoolStats, PooledConnection, SqliteConnectionManager};
+pub use pooled_sqlite::PooledSqliteMemory;
 pub use sqlite::SqliteMemory;
+pub use tiered_cache::{TieredMemory, TieredCacheConfig, CacheStats, CacheTier, TieredMemoryBuilder};
 pub use traits::Memory;
 #[allow(unused_imports)]
 pub use traits::{MemoryCategory, MemoryEntry};
