@@ -84,8 +84,24 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
         ));
     }
 
+    if config.web.enabled {
+        let web_cfg = config.clone();
+        handles.push(spawn_component_supervisor(
+            "web",
+            initial_backoff,
+            max_backoff,
+            move || {
+                let cfg = web_cfg.clone();
+                async move { crate::web::run_web_server(cfg, None).await }
+            },
+        ));
+    }
+
     println!("🧠 ZeroClaw daemon started");
     println!("   Gateway:  http://{host}:{port}");
+    if config.web.enabled {
+        println!("   Web UI:   http://{}", config.web.bind);
+    }
     println!("   Components: gateway, channels, heartbeat, scheduler");
     println!("   Ctrl+C to stop");
 

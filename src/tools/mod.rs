@@ -1,12 +1,15 @@
 pub mod browser;
 pub mod browser_open;
 pub mod composio;
+pub mod delegate;
 pub mod file_read;
 pub mod file_write;
+pub mod http_request;
 pub mod image_info;
 pub mod memory_forget;
 pub mod memory_recall;
 pub mod memory_store;
+pub mod schedule;
 pub mod screenshot;
 pub mod shell;
 pub mod traits;
@@ -14,21 +17,26 @@ pub mod traits;
 pub use browser::BrowserTool;
 pub use browser_open::BrowserOpenTool;
 pub use composio::ComposioTool;
+pub use delegate::DelegateTool;
 pub use file_read::FileReadTool;
 pub use file_write::FileWriteTool;
+pub use http_request::HttpRequestTool;
 pub use image_info::ImageInfoTool;
 pub use memory_forget::MemoryForgetTool;
 pub use memory_recall::MemoryRecallTool;
 pub use memory_store::MemoryStoreTool;
+pub use schedule::ScheduleTool;
 pub use screenshot::ScreenshotTool;
 pub use shell::ShellTool;
 pub use traits::Tool;
 #[allow(unused_imports)]
 pub use traits::{ToolResult, ToolSpec};
 
+use crate::config::DelegateAgentConfig;
 use crate::memory::Memory;
 use crate::runtime::{NativeRuntime, RuntimeAdapter};
 use crate::security::SecurityPolicy;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Create the default tool registry
@@ -54,6 +62,10 @@ pub fn all_tools(
     memory: Arc<dyn Memory>,
     composio_key: Option<&str>,
     browser_config: &crate::config::BrowserConfig,
+    http_request_config: &crate::config::HttpRequestConfig,
+    agents: &HashMap<String, DelegateAgentConfig>,
+    fallback_api_key: Option<&str>,
+    config: &crate::config::Config,
 ) -> Vec<Box<dyn Tool>> {
     all_tools_with_runtime(
         security,
@@ -61,6 +73,10 @@ pub fn all_tools(
         memory,
         composio_key,
         browser_config,
+        http_request_config,
+        agents,
+        fallback_api_key,
+        config,
     )
 }
 
@@ -71,6 +87,10 @@ pub fn all_tools_with_runtime(
     memory: Arc<dyn Memory>,
     composio_key: Option<&str>,
     browser_config: &crate::config::BrowserConfig,
+    http_request_config: &crate::config::HttpRequestConfig,
+    agents: &HashMap<String, DelegateAgentConfig>,
+    fallback_api_key: Option<&str>,
+    config: &crate::config::Config,
 ) -> Vec<Box<dyn Tool>> {
     let mut tools: Vec<Box<dyn Tool>> = vec![
         Box::new(ShellTool::new(security.clone(), runtime)),
@@ -99,11 +119,32 @@ pub fn all_tools_with_runtime(
     tools.push(Box::new(ScreenshotTool::new(security.clone())));
     tools.push(Box::new(ImageInfoTool::new(security.clone())));
 
+    if http_request_config.enabled {
+        tools.push(Box::new(HttpRequestTool::new(
+            security.clone(),
+            http_request_config.clone(),
+        )));
+    }
+
     if let Some(key) = composio_key {
         if !key.is_empty() {
             tools.push(Box::new(ComposioTool::new(key)));
         }
     }
+
+    // Add delegation tool when agents are configured
+    if !agents.is_empty() {
+        tools.push(Box::new(DelegateTool::new(
+            agents.clone(),
+            fallback_api_key.map(String::from),
+        )));
+    }
+
+    // Schedule tool is always available
+    tools.push(Box::new(ScheduleTool::new(
+        security.clone(),
+        config.clone(),
+    )));
 
     tools
 }
@@ -111,8 +152,16 @@ pub fn all_tools_with_runtime(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{BrowserConfig, MemoryConfig};
+    use crate::config::{BrowserConfig, Config, HttpRequestConfig, MemoryConfig};
     use tempfile::TempDir;
+
+    fn test_config(tmp: &TempDir) -> Config {
+        Config {
+            workspace_dir: tmp.path().join("workspace"),
+            config_path: tmp.path().join("config.toml"),
+            ..Config::default()
+        }
+    }
 
     #[test]
     fn default_tools_has_three() {
@@ -138,7 +187,18 @@ mod tests {
             session_name: None,
         };
 
-        let tools = all_tools(&security, mem, None, &browser);
+        let http = HttpRequestConfig::default();
+        let cfg = test_config(&tmp);
+        let tools = all_tools(
+            &security,
+            mem,
+            None,
+            &browser,
+            &http,
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(!names.contains(&"browser_open"));
     }
@@ -160,7 +220,18 @@ mod tests {
             session_name: None,
         };
 
-        let tools = all_tools(&security, mem, None, &browser);
+        let http = HttpRequestConfig::default();
+        let cfg = test_config(&tmp);
+        let tools = all_tools(
+            &security,
+            mem,
+            None,
+            &browser,
+            &http,
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(names.contains(&"browser_open"));
     }
@@ -257,5 +328,142 @@ mod tests {
         let parsed: ToolSpec = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.name, "test");
         assert_eq!(parsed.description, "A test tool");
+    }
+
+    #[test]
+    fn all_tools_excludes_http_request_when_disabled() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig::default();
+        let http = HttpRequestConfig {
+            enabled: false,
+            allowed_domains: vec!["example.com".into()],
+            ..HttpRequestConfig::default()
+        };
+
+        let cfg = test_config(&tmp);
+        let tools = all_tools(
+            &security,
+            mem,
+            None,
+            &browser,
+            &http,
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert!(!names.contains(&"http_request"));
+    }
+
+    #[test]
+    fn all_tools_includes_http_request_when_enabled() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig::default();
+        let http = HttpRequestConfig {
+            enabled: true,
+            allowed_domains: vec!["example.com".into()],
+            ..HttpRequestConfig::default()
+        };
+
+        let cfg = test_config(&tmp);
+        let tools = all_tools(
+            &security,
+            mem,
+            None,
+            &browser,
+            &http,
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert!(names.contains(&"http_request"));
+    }
+
+    #[test]
+    fn all_tools_includes_delegate_when_agents_configured() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig::default();
+        let http = HttpRequestConfig::default();
+
+        let mut agents = HashMap::new();
+        agents.insert(
+            "researcher".to_string(),
+            DelegateAgentConfig {
+                provider: "ollama".to_string(),
+                model: "llama3".to_string(),
+                system_prompt: None,
+                api_key: None,
+                temperature: None,
+                max_depth: 3,
+            },
+        );
+
+        let cfg = test_config(&tmp);
+        let tools = all_tools(
+            &security,
+            mem,
+            None,
+            &browser,
+            &http,
+            &agents,
+            Some("sk-test"),
+            &cfg,
+        );
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert!(names.contains(&"delegate"));
+    }
+
+    #[test]
+    fn all_tools_excludes_delegate_when_no_agents() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig::default();
+        let http = HttpRequestConfig::default();
+
+        let cfg = test_config(&tmp);
+        let tools = all_tools(
+            &security,
+            mem,
+            None,
+            &browser,
+            &http,
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert!(!names.contains(&"delegate"));
     }
 }

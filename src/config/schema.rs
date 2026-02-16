@@ -2,6 +2,7 @@ use crate::security::AutonomyLevel;
 use anyhow::{Context, Result};
 use directories::UserDirs;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -62,7 +63,29 @@ pub struct Config {
     pub browser: BrowserConfig,
 
     #[serde(default)]
+    pub http_request: HttpRequestConfig,
+
+    #[serde(default)]
     pub identity: IdentityConfig,
+
+    #[serde(default)]
+    pub web: WebConfig,
+
+    /// Named delegate agents for agent-to-agent handoff.
+    ///
+    /// ```toml
+    /// [agents.researcher]
+    /// provider = "gemini"
+    /// model = "gemini-2.0-flash"
+    /// system_prompt = "You are a research assistant..."
+    ///
+    /// [agents.coder]
+    /// provider = "openrouter"
+    /// model = "anthropic/claude-sonnet-4-20250514"
+    /// system_prompt = "You are a coding assistant..."
+    /// ```
+    #[serde(default)]
+    pub agents: HashMap<String, DelegateAgentConfig>,
 }
 
 // ── Identity (AIEOS / OpenClaw format) ──────────────────────────
@@ -92,6 +115,35 @@ impl Default for IdentityConfig {
             aieos_inline: None,
         }
     }
+}
+
+// ── Agent delegation ─────────────────────────────────────────────
+
+/// Configuration for a named delegate agent that can be invoked via the
+/// `delegate` tool. Each agent uses its own provider/model combination
+/// and system prompt, enabling multi-agent workflows with specialization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DelegateAgentConfig {
+    /// Provider name (e.g. "gemini", "openrouter", "ollama")
+    pub provider: String,
+    /// Model identifier for the provider
+    pub model: String,
+    /// System prompt defining the agent's role and capabilities
+    #[serde(default)]
+    pub system_prompt: Option<String>,
+    /// Optional API key override (uses default if not set)
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Temperature override (uses 0.7 if not set)
+    #[serde(default)]
+    pub temperature: Option<f64>,
+    /// Maximum delegation depth to prevent infinite recursion (default: 3)
+    #[serde(default = "default_max_delegation_depth")]
+    pub max_depth: u32,
+}
+
+fn default_max_delegation_depth() -> u32 {
+    3
 }
 
 // ── Gateway security ─────────────────────────────────────────────
@@ -166,6 +218,51 @@ impl Default for GatewayConfig {
     }
 }
 
+// ── Web Chat UI ─────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebConfig {
+    /// Enable the web chat UI
+    #[serde(default)]
+    pub enabled: bool,
+    /// Bind address (default: "127.0.0.1:8080")
+    #[serde(default = "default_web_bind")]
+    pub bind: String,
+    /// Bearer token for auth (empty = no auth)
+    #[serde(default)]
+    pub auth_token: String,
+    /// Maximum concurrent sessions
+    #[serde(default = "default_web_max_sessions")]
+    pub max_sessions: usize,
+    /// Session timeout in seconds
+    #[serde(default = "default_web_session_timeout")]
+    pub session_timeout_secs: u64,
+}
+
+fn default_web_bind() -> String {
+    "127.0.0.1:8080".into()
+}
+
+fn default_web_max_sessions() -> usize {
+    10
+}
+
+fn default_web_session_timeout() -> u64 {
+    3600
+}
+
+impl Default for WebConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bind: default_web_bind(),
+            auth_token: String::new(),
+            max_sessions: default_web_max_sessions(),
+            session_timeout_secs: default_web_session_timeout(),
+        }
+    }
+}
+
 // ── Composio (managed tool surface) ─────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -223,6 +320,32 @@ pub struct BrowserConfig {
     /// Browser session name (for agent-browser automation)
     #[serde(default)]
     pub session_name: Option<String>,
+}
+
+// ── HTTP Request (outbound API calls) ───────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HttpRequestConfig {
+    /// Enable `http_request` tool
+    #[serde(default)]
+    pub enabled: bool,
+    /// Allowed domains for HTTP requests (exact or subdomain match)
+    #[serde(default)]
+    pub allowed_domains: Vec<String>,
+    /// Request timeout in seconds (default: 30)
+    #[serde(default = "default_http_timeout_secs")]
+    pub timeout_secs: u64,
+    /// Max response body size in bytes (default: 1 MB)
+    #[serde(default = "default_http_max_response_bytes")]
+    pub max_response_bytes: usize,
+}
+
+fn default_http_timeout_secs() -> u64 {
+    30
+}
+
+fn default_http_max_response_bytes() -> usize {
+    1_048_576 // 1 MB
 }
 
 // ── Memory ───────────────────────────────────────────────────
@@ -831,7 +954,10 @@ impl Default for Config {
             composio: ComposioConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
+            http_request: HttpRequestConfig::default(),
             identity: IdentityConfig::default(),
+            web: WebConfig::default(),
+            agents: HashMap::new(),
         }
     }
 }
@@ -1141,7 +1267,10 @@ mod tests {
             composio: ComposioConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
+            http_request: HttpRequestConfig::default(),
             identity: IdentityConfig::default(),
+            web: WebConfig::default(),
+            agents: HashMap::new(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -1212,7 +1341,10 @@ default_temperature = 0.7
             composio: ComposioConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
+            http_request: HttpRequestConfig::default(),
             identity: IdentityConfig::default(),
+            web: WebConfig::default(),
+            agents: HashMap::new(),
         };
 
         config.save().unwrap();
@@ -1966,5 +2098,81 @@ default_temperature = 0.7
         assert!(g.require_pairing);
         assert!(!g.allow_public_bind);
         assert!(g.paired_tokens.is_empty());
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // AGENT DELEGATION CONFIG TESTS
+    // ══════════════════════════════════════════════════════════
+
+    #[test]
+    fn agents_config_default_empty() {
+        let c = Config::default();
+        assert!(c.agents.is_empty());
+    }
+
+    #[test]
+    fn agents_config_backward_compat_missing_section() {
+        let minimal = r#"
+workspace_dir = "/tmp/ws"
+config_path = "/tmp/config.toml"
+default_temperature = 0.7
+"#;
+        let parsed: Config = toml::from_str(minimal).unwrap();
+        assert!(parsed.agents.is_empty());
+    }
+
+    #[test]
+    fn agents_config_toml_roundtrip() {
+        let toml_str = r#"
+default_temperature = 0.7
+
+[agents.researcher]
+provider = "gemini"
+model = "gemini-2.0-flash"
+system_prompt = "You are a research assistant."
+max_depth = 2
+
+[agents.coder]
+provider = "openrouter"
+model = "anthropic/claude-sonnet-4-20250514"
+"#;
+        let parsed: Config = toml::from_str(toml_str).unwrap();
+        assert_eq!(parsed.agents.len(), 2);
+
+        let researcher = &parsed.agents["researcher"];
+        assert_eq!(researcher.provider, "gemini");
+        assert_eq!(researcher.model, "gemini-2.0-flash");
+        assert_eq!(
+            researcher.system_prompt.as_deref(),
+            Some("You are a research assistant.")
+        );
+        assert_eq!(researcher.max_depth, 2);
+        assert!(researcher.api_key.is_none());
+        assert!(researcher.temperature.is_none());
+
+        let coder = &parsed.agents["coder"];
+        assert_eq!(coder.provider, "openrouter");
+        assert_eq!(coder.model, "anthropic/claude-sonnet-4-20250514");
+        assert!(coder.system_prompt.is_none());
+        assert_eq!(coder.max_depth, 3); // default
+    }
+
+    #[test]
+    fn agents_config_with_api_key_and_temperature() {
+        let toml_str = r#"
+[agents.fast]
+provider = "groq"
+model = "llama-3.3-70b-versatile"
+api_key = "gsk-test-key"
+temperature = 0.3
+"#;
+        let parsed: HashMap<String, DelegateAgentConfig> = toml::from_str::<toml::Value>(toml_str)
+            .unwrap()["agents"]
+            .clone()
+            .try_into()
+            .unwrap();
+        let fast = &parsed["fast"];
+        assert_eq!(fast.api_key.as_deref(), Some("gsk-test-key"));
+        assert!((fast.temperature.unwrap() - 0.3).abs() < f64::EPSILON);
     }
 }

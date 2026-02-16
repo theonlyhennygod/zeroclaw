@@ -37,6 +37,7 @@ mod skills;
 mod tools;
 mod tunnel;
 mod util;
+mod web;
 
 use config::Config;
 
@@ -165,6 +166,13 @@ enum Commands {
     Skills {
         #[command(subcommand)]
         skill_command: SkillCommands,
+    },
+
+    /// Start the web chat UI
+    Web {
+        /// Bind address (host:port)
+        #[arg(short, long, default_value = "127.0.0.1:8080")]
+        bind: String,
     },
 
     /// Migrate data from other agent runtimes
@@ -380,6 +388,14 @@ async fn main() -> Result<()> {
                 "  Max cost/day:      ${:.2}",
                 f64::from(config.autonomy.max_cost_per_day_cents) / 100.0
             );
+            println!(
+                "🌐 Web UI:         {}",
+                if config.web.enabled {
+                    format!("http://{}", config.web.bind)
+                } else {
+                    "disabled".into()
+                }
+            );
             println!();
             println!("Channels:");
             println!("  CLI:      ✅ always");
@@ -421,6 +437,8 @@ async fn main() -> Result<()> {
         Commands::Skills { skill_command } => {
             skills::handle_command(skill_command, &config.workspace_dir)
         }
+
+        Commands::Web { bind } => web::run_web_server(config, Some(&bind)).await,
 
         Commands::Migrate { migrate_command } => {
             migration::handle_command(migrate_command, &config).await

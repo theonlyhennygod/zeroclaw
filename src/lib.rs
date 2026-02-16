@@ -37,6 +37,7 @@ pub mod skills;
 pub mod tools;
 pub mod tunnel;
 pub mod util;
+pub mod web;
 
 pub use config::Config;
 
