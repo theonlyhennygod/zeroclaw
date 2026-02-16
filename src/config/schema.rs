@@ -694,6 +694,7 @@ pub struct ChannelsConfig {
     pub whatsapp: Option<WhatsAppConfig>,
     pub email: Option<crate::channels::email_channel::EmailConfig>,
     pub irc: Option<IrcConfig>,
+    pub clawdtalk: Option<crate::channels::clawdtalk::ClawdTalkConfig>,
 }
 
 impl Default for ChannelsConfig {
@@ -709,6 +710,7 @@ impl Default for ChannelsConfig {
             whatsapp: None,
             email: None,
             irc: None,
+            clawdtalk: None,
         }
     }
 }

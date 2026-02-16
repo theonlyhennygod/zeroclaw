@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod clawdtalk;
 pub mod discord;
 pub mod email_channel;
 pub mod imessage;
@@ -10,6 +11,7 @@ pub mod traits;
 pub mod whatsapp;
 
 pub use cli::CliChannel;
+pub use clawdtalk::{ClawdTalkChannel, ClawdTalkConfig};
 pub use discord::DiscordChannel;
 pub use email_channel::EmailChannel;
 pub use imessage::IMessageChannel;
@@ -302,6 +304,7 @@ pub fn handle_command(command: crate::ChannelCommands, config: &Config) -> Resul
                 ("WhatsApp", config.channels_config.whatsapp.is_some()),
                 ("Email", config.channels_config.email.is_some()),
                 ("IRC", config.channels_config.irc.is_some()),
+                ("ClawdTalk", config.channels_config.clawdtalk.is_some()),
             ] {
                 println!("  {} {name}", if configured { "✅" } else { "❌" });
             }
@@ -427,6 +430,13 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
                 irc.sasl_password.clone(),
                 irc.verify_tls.unwrap_or(true),
             )),
+        ));
+    }
+
+    if let Some(ref ct) = config.channels_config.clawdtalk {
+        channels.push((
+            "ClawdTalk",
+            Arc::new(ClawdTalkChannel::new(ct.clone())),
         ));
     }
 
@@ -620,6 +630,10 @@ pub async fn start_channels(config: Config) -> Result<()> {
             irc.sasl_password.clone(),
             irc.verify_tls.unwrap_or(true),
         )));
+    }
+
+    if let Some(ref ct) = config.channels_config.clawdtalk {
+        channels.push(Arc::new(ClawdTalkChannel::new(ct.clone())));
     }
 
     if channels.is_empty() {
