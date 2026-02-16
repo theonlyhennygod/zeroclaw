@@ -107,6 +107,10 @@ enum Commands {
         /// Temperature (0.0 - 2.0)
         #[arg(short, long, default_value = "0.7")]
         temperature: f64,
+
+        /// Print user-facing progress lines via observer (`>` send, `<` receive/complete).
+        #[arg(long)]
+        verbose: bool,
     },
 
     /// Start the gateway server (webhooks, websockets)
@@ -313,7 +317,8 @@ async fn main() -> Result<()> {
             provider,
             model,
             temperature,
-        } => agent::run(config, message, provider, model, temperature).await,
+            verbose,
+        } => agent::run(config, message, provider, model, temperature, verbose).await,
 
         Commands::Gateway { port, host } => {
             if port == 0 {
