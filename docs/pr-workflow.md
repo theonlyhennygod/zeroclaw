@@ -1,6 +1,6 @@
-# ZeroClaw PR Workflow (High-Volume Collaboration)
+# CrabClaw PR Workflow (High-Volume Collaboration)
 
-This document defines how ZeroClaw handles high PR volume while maintaining:
+This document defines how CrabClaw handles high PR volume while maintaining:
 
 - High performance
 - High efficiency

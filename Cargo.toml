@@ -1,11 +1,11 @@
 [package]
-name = "zeroclaw"
+name = "crabclaw"
 version = "0.1.0"
 edition = "2021"
-authors = ["theonlyhennygod"]
+authors = ["NaritATK"]
 license = "MIT"
-description = "Zero overhead. Zero compromise. 100% Rust. The fastest, smallest AI assistant."
-repository = "https://github.com/theonlyhennygod/zeroclaw"
+description = "Personal, agentic AI assistant infrastructure — fast, small, and hackable (CrabClaw)."
+repository = "https://github.com/NaritATK/CrabClaw"
 readme = "README.md"
 keywords = ["ai", "agent", "cli", "assistant", "chatbot"]
 categories = ["command-line-utilities", "api-bindings"]

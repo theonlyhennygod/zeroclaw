@@ -76,9 +76,10 @@ fn spawn_supervised_listener(
     })
 }
 
-/// Load OpenClaw format bootstrap files into the prompt.
+/// Load `OpenClaw` format bootstrap files into the prompt.
 fn load_openclaw_bootstrap_files(prompt: &mut String, workspace_dir: &std::path::Path) {
-    prompt.push_str("The following workspace files define your identity, behavior, and context.\n\n");
+    prompt
+        .push_str("The following workspace files define your identity, behavior, and context.\n\n");
 
     let bootstrap_files = [
         "AGENTS.md",
@@ -235,7 +236,7 @@ pub fn build_system_prompt(
     );
 
     if prompt.is_empty() {
-        "You are ZeroClaw, a fast and efficient AI assistant built in Rust. Be helpful, concise, and direct.".to_string()
+        "You are CrabClaw, a fast and efficient AI assistant built in Rust. Be helpful, concise, and direct.".to_string()
     } else {
         prompt
     }
@@ -258,8 +259,7 @@ fn inject_workspace_file(prompt: &mut String, workspace_dir: &std::path::Path, f
                 trimmed
                     .char_indices()
                     .nth(BOOTSTRAP_MAX_CHARS)
-                    .map(|(idx, _)| &trimmed[..idx])
-                    .unwrap_or(trimmed)
+                    .map_or(trimmed, |(idx, _)| &trimmed[..idx])
             } else {
                 trimmed
             };
@@ -305,9 +305,9 @@ pub fn handle_command(command: crate::ChannelCommands, config: &Config) -> Resul
             ] {
                 println!("  {} {name}", if configured { "✅" } else { "❌" });
             }
-            println!("\nTo start channels: zeroclaw channel start");
-            println!("To check health:    zeroclaw channel doctor");
-            println!("To configure:      zeroclaw onboard");
+            println!("\nTo start channels: crabclaw channel start");
+            println!("To check health:    crabclaw channel doctor");
+            println!("To configure:      crabclaw onboard");
             Ok(())
         }
         crate::ChannelCommands::Add {
@@ -315,11 +315,11 @@ pub fn handle_command(command: crate::ChannelCommands, config: &Config) -> Resul
             config: _,
         } => {
             anyhow::bail!(
-                "Channel type '{channel_type}' — use `zeroclaw onboard` to configure channels"
+                "Channel type '{channel_type}' — use `crabclaw onboard` to configure channels"
             );
         }
         crate::ChannelCommands::Remove { name } => {
-            anyhow::bail!("Remove channel '{name}' — edit ~/.zeroclaw/config.toml directly");
+            anyhow::bail!("Remove channel '{name}' — edit ~/.crabclaw/config.toml directly");
         }
     }
 }
@@ -342,6 +342,7 @@ fn classify_health_result(
 }
 
 /// Run health checks for configured channels.
+#[allow(clippy::too_many_lines)]
 pub async fn doctor_channels(config: Config) -> Result<()> {
     let mut channels: Vec<(&'static str, Arc<dyn Channel>)> = Vec::new();
 
@@ -431,11 +432,11 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
     }
 
     if channels.is_empty() {
-        println!("No real-time channels configured. Run `zeroclaw onboard` first.");
+        println!("No real-time channels configured. Run `crabclaw onboard` first.");
         return Ok(());
     }
 
-    println!("🩺 ZeroClaw Channel Doctor");
+    println!("🩺 CrabClaw Channel Doctor");
     println!();
 
     let mut healthy = 0_u32;
@@ -463,7 +464,7 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
     }
 
     if config.channels_config.webhook.is_some() {
-        println!("  ℹ️  Webhook   check via `zeroclaw gateway` then GET /health");
+        println!("  ℹ️  Webhook   check via `crabclaw gateway` then GET /health");
     }
 
     println!();
@@ -623,11 +624,11 @@ pub async fn start_channels(config: Config) -> Result<()> {
     }
 
     if channels.is_empty() {
-        println!("No channels configured. Run `zeroclaw onboard` to set up channels.");
+        println!("No channels configured. Run `crabclaw onboard` to set up channels.");
         return Ok(());
     }
 
-    println!("🦀 ZeroClaw Channel Server");
+    println!("🦀 CrabClaw Channel Server");
     println!("  🤖 Model:    {model}");
     println!(
         "  🧠 Memory:   {} (auto-save: {})",
@@ -732,10 +733,8 @@ pub async fn start_channels(config: Config) -> Result<()> {
                 }
             }
             Err(_) => {
-                let timeout_msg = format!(
-                    "LLM response timed out after {}s",
-                    CHANNEL_MESSAGE_TIMEOUT_SECS
-                );
+                let timeout_msg =
+                    format!("LLM response timed out after {CHANNEL_MESSAGE_TIMEOUT_SECS}s");
                 eprintln!(
                     "  ❌ {} (elapsed: {}ms)",
                     timeout_msg,
@@ -775,7 +774,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         // Create minimal workspace files
         std::fs::write(tmp.path().join("SOUL.md"), "# Soul\nBe helpful.").unwrap();
-        std::fs::write(tmp.path().join("IDENTITY.md"), "# Identity\nName: ZeroClaw").unwrap();
+        std::fs::write(tmp.path().join("IDENTITY.md"), "# Identity\nName: CrabClaw").unwrap();
         std::fs::write(tmp.path().join("USER.md"), "# User\nName: Test User").unwrap();
         std::fs::write(
             tmp.path().join("AGENTS.md"),
@@ -846,7 +845,7 @@ mod tests {
         assert!(prompt.contains("Be helpful"), "missing SOUL content");
         assert!(prompt.contains("### IDENTITY.md"), "missing IDENTITY.md");
         assert!(
-            prompt.contains("Name: ZeroClaw"),
+            prompt.contains("Name: CrabClaw"),
             "missing IDENTITY content"
         );
         assert!(prompt.contains("### USER.md"), "missing USER.md");

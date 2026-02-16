@@ -1,13 +1,13 @@
-# Contributing to ZeroClaw
+# Contributing to CrabClaw
 
-Thanks for your interest in contributing to ZeroClaw! This guide will help you get started.
+Thanks for your interest in contributing to CrabClaw! This guide will help you get started.
 
 ## Development Setup
 
 ```bash
 # Clone the repo
-git clone https://github.com/theonlyhennygod/zeroclaw.git
-cd zeroclaw
+git clone https://github.com/theonlyhennygod/crabclaw.git
+cd crabclaw
 
 # Enable the pre-push hook (runs fmt, clippy, tests before every push)
 git config core.hooksPath .githooks
@@ -67,7 +67,7 @@ Agent implementation playbook lives in [`AGENTS.md`](AGENTS.md).
 
 ## Architecture: Trait-Based Pluggability
 
-ZeroClaw's architecture is built on **traits** — every subsystem is swappable. This means contributing a new integration is as simple as implementing a trait and registering it in the factory function.
+CrabClaw's architecture is built on **traits** — every subsystem is swappable. This means contributing a new integration is as simple as implementing a trait and registering it in the factory function.
 
 ```
 src/

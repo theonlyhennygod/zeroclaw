@@ -67,9 +67,9 @@ impl RuntimeAdapter for DockerRuntime {
 
     fn storage_path(&self) -> PathBuf {
         if self.config.mount_workspace {
-            PathBuf::from("/workspace/.zeroclaw")
+            PathBuf::from("/workspace/.crabclaw")
         } else {
-            PathBuf::from("/tmp/.zeroclaw")
+            PathBuf::from("/tmp/.crabclaw")
         }
     }
 
@@ -149,8 +149,10 @@ mod tests {
 
     #[test]
     fn docker_runtime_memory_budget() {
-        let mut cfg = DockerRuntimeConfig::default();
-        cfg.memory_limit_mb = Some(256);
+        let cfg = DockerRuntimeConfig {
+            memory_limit_mb: Some(256),
+            ..Default::default()
+        };
         let runtime = DockerRuntime::new(cfg);
         assert_eq!(runtime.memory_budget(), 256 * 1024 * 1024);
     }

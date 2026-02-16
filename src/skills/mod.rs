@@ -7,11 +7,11 @@ use std::process::Command;
 use std::time::{Duration, SystemTime};
 
 const OPEN_SKILLS_REPO_URL: &str = "https://github.com/besoeasy/open-skills";
-const OPEN_SKILLS_SYNC_MARKER: &str = ".zeroclaw-open-skills-sync";
+const OPEN_SKILLS_SYNC_MARKER: &str = ".crabclaw-open-skills-sync";
 const OPEN_SKILLS_SYNC_INTERVAL_SECS: u64 = 60 * 60 * 24 * 7;
 
 /// A skill is a user-defined or community-built capability.
-/// Skills live in `~/.zeroclaw/workspace/skills/<name>/SKILL.md`
+/// Skills live in `~/.crabclaw/workspace/skills/<name>/SKILL.md`
 /// and can include tool definitions, prompts, and automation scripts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Skill {
@@ -404,7 +404,7 @@ pub fn init_skills_dir(workspace_dir: &Path) -> Result<()> {
     if !readme.exists() {
         std::fs::write(
             &readme,
-            "# ZeroClaw Skills\n\n\
+            "# CrabClaw Skills\n\n\
              Each subdirectory is a skill. Create a `SKILL.toml` or `SKILL.md` file inside.\n\n\
              ## SKILL.toml format\n\n\
              ```toml\n\
@@ -425,8 +425,8 @@ pub fn init_skills_dir(workspace_dir: &Path) -> Result<()> {
              The agent will read it and follow the instructions.\n\n\
              ## Installing community skills\n\n\
              ```bash\n\
-             zeroclaw skills install <github-url>\n\
-             zeroclaw skills list\n\
+             crabclaw skills install <github-url>\n\
+             crabclaw skills list\n\
              ```\n",
         )?;
     }
@@ -460,10 +460,10 @@ pub fn handle_command(command: crate::SkillCommands, workspace_dir: &Path) -> Re
             if skills.is_empty() {
                 println!("No skills installed.");
                 println!();
-                println!("  Create one: mkdir -p ~/.zeroclaw/workspace/skills/my-skill");
-                println!("              echo '# My Skill' > ~/.zeroclaw/workspace/skills/my-skill/SKILL.md");
+                println!("  Create one: mkdir -p ~/.crabclaw/workspace/skills/my-skill");
+                println!("              echo '# My Skill' > ~/.crabclaw/workspace/skills/my-skill/SKILL.md");
                 println!();
-                println!("  Or install: zeroclaw skills install <github-url>");
+                println!("  Or install: crabclaw skills install <github-url>");
             } else {
                 println!("Installed skills ({}):", skills.len());
                 println!();
@@ -511,7 +511,7 @@ pub fn handle_command(command: crate::SkillCommands, workspace_dir: &Path) -> Re
                         "  {} Skill installed successfully!",
                         console::style("✓").green().bold()
                     );
-                    println!("  Restart `zeroclaw channel start` to activate.");
+                    println!("  Restart `crabclaw channel start` to activate.");
                 } else {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     anyhow::bail!("Git clone failed: {stderr}");
@@ -898,9 +898,9 @@ description = "Bare minimum"
 
     #[test]
     fn skills_dir_path() {
-        let base = std::path::Path::new("/home/user/.zeroclaw");
+        let base = std::path::Path::new("/home/user/.crabclaw");
         let dir = skills_dir(base);
-        assert_eq!(dir, PathBuf::from("/home/user/.zeroclaw/skills"));
+        assert_eq!(dir, PathBuf::from("/home/user/.crabclaw/skills"));
     }
 
     #[test]

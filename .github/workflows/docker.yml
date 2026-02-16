@@ -51,13 +51,13 @@ jobs:
                   context: .
                   push: false
                   load: true
-                  tags: zeroclaw-pr-smoke:latest
+                  tags: crabclaw-pr-smoke:latest
                   labels: ${{ steps.meta.outputs.labels }}
                   cache-from: type=gha
                   platforms: linux/amd64
 
             - name: Verify image
-              run: docker run --rm zeroclaw-pr-smoke:latest --version
+              run: docker run --rm crabclaw-pr-smoke:latest --version
 
     publish:
         name: Build and Push Docker Image

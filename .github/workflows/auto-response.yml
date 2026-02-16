@@ -24,12 +24,12 @@ jobs:
 
             Before maintainers triage it, please confirm:
             - Repro steps are complete and run on latest `main`
-            - Environment details are included (OS, Rust version, ZeroClaw version)
+            - Environment details are included (OS, Rust version, CrabClaw version)
             - Sensitive values are redacted
 
             This helps us keep issue throughput high and response latency low.
           pr-message: |
-            Thanks for contributing to ZeroClaw.
+            Thanks for contributing to CrabClaw.
 
             For faster review, please ensure:
             - PR template sections are fully completed

@@ -1,6 +1,6 @@
-# ZeroClaw Development Environment
+# CrabClaw Development Environment
 
-A fully containerized development sandbox for ZeroClaw agents. This environment allows you to develop, test, and debug the agent in isolation without modifying your host system.
+A fully containerized development sandbox for CrabClaw agents. This environment allows you to develop, test, and debug the agent in isolation without modifying your host system.
 
 ## Directory Structure
 
@@ -25,12 +25,12 @@ Run all commands from the repository root using the helper script:
 ```
 Builds the agent from source and starts both containers.
 
-### 2. Enter Agent Container (`zeroclaw-dev`)
+### 2. Enter Agent Container (`crabclaw-dev`)
 ```bash
 ./dev/cli.sh agent
 ```
-Use this to run `zeroclaw` CLI commands manually, debug the binary, or check logs internally.
-- **Path**: `/zeroclaw-data`
+Use this to run `crabclaw` CLI commands manually, debug the binary, or check logs internally.
+- **Path**: `/crabclaw-data`
 - **User**: `nobody` (65534)
 
 ### 3. Enter Sandbox (`sandbox`)
@@ -51,21 +51,21 @@ Use this to act as the "user" or "environment" the agent interacts with.
    ```bash
    ./dev/cli.sh agent
    # inside container:
-   zeroclaw --version
+   crabclaw --version
    ```
 
 ### 5. Persistence & Shared Workspace
 The local `playground/` directory (in repo root) is mounted as the shared workspace:
-- **Agent**: `/zeroclaw-data/workspace`
+- **Agent**: `/crabclaw-data/workspace`
 - **Sandbox**: `/home/developer/workspace`
 
 Files created by the agent are visible to the sandbox user, and vice versa.
 
-The agent configuration lives in `target/.zeroclaw` (mounted to `/zeroclaw-data/.zeroclaw`), so settings persist across container rebuilds.
+The agent configuration lives in `target/.crabclaw` (mounted to `/crabclaw-data/.crabclaw`), so settings persist across container rebuilds.
 
 ### 6. Cleanup
 Stop containers and remove volumes and generated config:
 ```bash
 ./dev/cli.sh clean
 ```
-**Note:** This removes `target/.zeroclaw` (config/DB) but leaves the `playground/` directory intact. To fully wipe everything, manually delete `playground/`.
+**Note:** This removes `target/.crabclaw` (config/DB) but leaves the `playground/` directory intact. To fully wipe everything, manually delete `playground/`.

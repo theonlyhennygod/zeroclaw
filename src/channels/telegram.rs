@@ -410,11 +410,7 @@ impl Channel for TelegramChannel {
             let plain_status = plain_resp.status();
             let plain_err = plain_resp.text().await.unwrap_or_default();
             anyhow::bail!(
-                "Telegram sendMessage failed (markdown {}: {}; plain {}: {})",
-                markdown_status,
-                markdown_err,
-                plain_status,
-                plain_err
+                "Telegram sendMessage failed (markdown {markdown_status}: {markdown_err}; plain {plain_status}: {plain_err})"
             );
         }
 
@@ -487,7 +483,7 @@ impl Channel for TelegramChannel {
                     if !self.is_any_user_allowed(identities.iter().copied()) {
                         tracing::warn!(
                             "Telegram: ignoring message from unauthorized user: username={username}, user_id={}. \
-Allowlist Telegram @username or numeric user ID, then run `zeroclaw onboard --channels-only`.",
+Allowlist Telegram @username or numeric user ID, then run `crabclaw onboard --channels-only`.",
                             user_id_str.as_deref().unwrap_or("unknown")
                         );
                         continue;
@@ -505,7 +501,8 @@ Allowlist Telegram @username or numeric user ID, then run `zeroclaw onboard --ch
                         "chat_id": &chat_id,
                         "action": "typing"
                     });
-                    let _ = self.client
+                    let _ = self
+                        .client
                         .post(self.api_url("sendChatAction"))
                         .json(&typing_body)
                         .send()

@@ -266,7 +266,7 @@ pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<
         }
 
         _ => anyhow::bail!(
-            "Unknown provider: {name}. Check README for supported providers or run `zeroclaw onboard --interactive` to reconfigure.\n\
+            "Unknown provider: {name}. Check README for supported providers or run `crabclaw onboard --interactive` to reconfigure.\n\
              Tip: Use \"custom:https://your-api.com\" for OpenAI-compatible endpoints.\n\
              Tip: Use \"anthropic-custom:https://your-api.com\" for Anthropic-compatible endpoints."
         ),
@@ -318,7 +318,7 @@ pub fn create_resilient_provider(
     )))
 }
 
-/// Create a RouterProvider if model routes are configured, otherwise return a
+/// Create a `RouterProvider` if model routes are configured, otherwise return a
 /// standard resilient provider. The router wraps individual providers per route,
 /// each with its own retry/fallback chain.
 pub fn create_routed_provider(

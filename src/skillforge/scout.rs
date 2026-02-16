@@ -73,6 +73,7 @@ pub struct GitHubScout {
 }
 
 impl GitHubScout {
+    #[allow(clippy::needless_pass_by_value)]
     pub fn new(token: Option<String>) -> Self {
         use std::time::Duration;
 
@@ -83,7 +84,7 @@ impl GitHubScout {
         );
         headers.insert(
             reqwest::header::USER_AGENT,
-            "ZeroClaw-SkillForge/0.1".parse().expect("valid header"),
+            "CrabClaw-SkillForge/0.1".parse().expect("valid header"),
         );
         if let Some(ref t) = token {
             if let Ok(val) = format!("Bearer {t}").parse() {
@@ -99,7 +100,7 @@ impl GitHubScout {
 
         Self {
             client,
-            queries: vec!["zeroclaw skill".into(), "ai agent skill".into()],
+            queries: vec!["crabclaw skill".into(), "ai agent skill".into()],
         }
     }
 
@@ -122,7 +123,7 @@ impl GitHubScout {
                     .to_string();
                 let stars = item
                     .get("stargazers_count")
-                    .and_then(|v| v.as_u64())
+                    .and_then(serde_json::Value::as_u64)
                     .unwrap_or(0);
                 let language = item
                     .get("language")
@@ -138,7 +139,7 @@ impl GitHubScout {
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown")
                     .to_string();
-                let has_license = item.get("license").map(|v| !v.is_null()).unwrap_or(false);
+                let has_license = item.get("license").is_some_and(|v| !v.is_null());
 
                 Some(ScoutResult {
                     name,
