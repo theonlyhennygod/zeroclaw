@@ -19,6 +19,7 @@ pub mod cli;
 pub mod dingtalk;
 pub mod discord;
 pub mod email_channel;
+pub mod github;
 pub mod imessage;
 pub mod irc;
 #[cfg(feature = "channel-lark")]
@@ -48,6 +49,7 @@ pub use cli::CliChannel;
 pub use dingtalk::DingTalkChannel;
 pub use discord::DiscordChannel;
 pub use email_channel::EmailChannel;
+pub use github::GitHubChannel;
 pub use imessage::IMessageChannel;
 pub use irc::IrcChannel;
 #[cfg(feature = "channel-lark")]
@@ -4719,6 +4721,17 @@ fn collect_configured_channels(
                 lq.api_token.clone(),
                 lq.from_phone.clone(),
                 lq.allowed_senders.clone(),
+            )),
+        });
+    }
+
+    if let Some(ref gh) = config.channels_config.github {
+        channels.push(ConfiguredChannel {
+            display_name: "GitHub",
+            channel: Arc::new(GitHubChannel::new(
+                gh.access_token.clone(),
+                gh.api_base_url.clone(),
+                gh.allowed_repos.clone(),
             )),
         });
     }

@@ -526,9 +526,15 @@ pub fn all_integrations() -> Vec<IntegrationEntry> {
         // ── Productivity ────────────────────────────────────────
         IntegrationEntry {
             name: "GitHub",
-            description: "Code, issues, PRs",
+            description: "Native issue/PR comment channel",
             category: IntegrationCategory::Productivity,
-            status_fn: |_| IntegrationStatus::ComingSoon,
+            status_fn: |c| {
+                if c.channels_config.github.is_some() {
+                    IntegrationStatus::Active
+                } else {
+                    IntegrationStatus::Available
+                }
+            },
         },
         IntegrationEntry {
             name: "Notion",

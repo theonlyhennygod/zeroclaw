@@ -697,6 +697,10 @@ fn mask_sensitive_fields(config: &crate::config::Config) -> crate::config::Confi
         mask_required_secret(&mut linq.api_token);
         mask_optional_secret(&mut linq.signing_secret);
     }
+    if let Some(github) = masked.channels_config.github.as_mut() {
+        mask_required_secret(&mut github.access_token);
+        mask_optional_secret(&mut github.webhook_secret);
+    }
     if let Some(wati) = masked.channels_config.wati.as_mut() {
         mask_required_secret(&mut wati.api_token);
     }
@@ -857,6 +861,13 @@ fn restore_masked_sensitive_fields(
     ) {
         restore_required_secret(&mut incoming_ch.api_token, &current_ch.api_token);
         restore_optional_secret(&mut incoming_ch.signing_secret, &current_ch.signing_secret);
+    }
+    if let (Some(incoming_ch), Some(current_ch)) = (
+        incoming.channels_config.github.as_mut(),
+        current.channels_config.github.as_ref(),
+    ) {
+        restore_required_secret(&mut incoming_ch.access_token, &current_ch.access_token);
+        restore_optional_secret(&mut incoming_ch.webhook_secret, &current_ch.webhook_secret);
     }
     if let (Some(incoming_ch), Some(current_ch)) = (
         incoming.channels_config.wati.as_mut(),
