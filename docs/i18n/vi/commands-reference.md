@@ -36,6 +36,8 @@ Xác minh lần cuối: **2026-02-28**.
 - `zeroclaw onboard --channels-only`
 - `zeroclaw onboard --api-key <KEY> --provider <ID> --memory <sqlite|lucid|markdown|none>`
 - `zeroclaw onboard --api-key <KEY> --provider <ID> --model <MODEL_ID> --memory <sqlite|lucid|markdown|none>`
+- `zeroclaw onboard --migrate-openclaw`
+- `zeroclaw onboard --migrate-openclaw --openclaw-source <PATH> --openclaw-config <PATH>`
 
 ### `agent`
 
@@ -120,7 +122,9 @@ Skill manifest (`SKILL.toml`) hỗ trợ `prompts` và `[[tools]]`; cả hai đ�
 
 ### `migrate`
 
-- `zeroclaw migrate openclaw [--source <path>] [--dry-run]`
+- `zeroclaw migrate openclaw [--source <path>] [--source-config <path>] [--dry-run]`
+
+Gợi ý: trong hội thoại agent, bề mặt tool `openclaw_migration` cho phép preview hoặc áp dụng migration bằng tool-call có kiểm soát quyền.
 
 ### `config`
 

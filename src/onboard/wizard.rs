@@ -122,8 +122,22 @@ pub async fn run_wizard_with_migration(
     match resolve_interactive_onboarding_mode(&config_path, force)? {
         InteractiveOnboardingMode::FullOnboarding => {}
         InteractiveOnboardingMode::UpdateProviderOnly => {
-            let mut config = run_provider_update_wizard(&workspace_dir, &config_path).await?;
-            maybe_run_openclaw_migration(&mut config, &migration_options, true).await?;
+            let raw = fs::read_to_string(&config_path).await.with_context(|| {
+                format!(
+                    "Failed to read existing config at {}",
+                    config_path.display()
+                )
+            })?;
+            let mut existing_config: Config = toml::from_str(&raw).with_context(|| {
+                format!(
+                    "Failed to parse existing config at {}",
+                    config_path.display()
+                )
+            })?;
+            existing_config.workspace_dir = workspace_dir.to_path_buf();
+            existing_config.config_path = config_path.to_path_buf();
+            maybe_run_openclaw_migration(&mut existing_config, &migration_options, true).await?;
+            let config = run_provider_update_wizard(&workspace_dir, &config_path).await?;
             return Ok(config);
         }
     }
@@ -479,6 +493,10 @@ pub async fn run_quick_setup_with_migration(
     no_totp: bool,
     migration_options: OpenClawOnboardMigrationOptions,
 ) -> Result<Config> {
+    let migration_requested = migration_options.enabled
+        || migration_options.source_workspace.is_some()
+        || migration_options.source_config.is_some();
+
     let home = directories::UserDirs::new()
         .map(|u| u.home_dir().to_path_buf())
         .context("Could not find home directory")?;
@@ -495,6 +513,15 @@ pub async fn run_quick_setup_with_migration(
     .await?;
 
     maybe_run_openclaw_migration(&mut config, &migration_options, false).await?;
+
+    if migration_requested {
+        println!();
+        println!(
+            "  {} Post-migration summary (updated configuration):",
+            style("↻").cyan().bold()
+        );
+        print_summary(&config);
+    }
     Ok(config)
 }
 
@@ -534,11 +561,19 @@ async fn maybe_run_openclaw_migration(
         style("↻").cyan().bold()
     );
 
-    let _report = migrate_openclaw(
+    let report = migrate_openclaw(
         config,
         OpenClawMigrationOptions {
-            source_workspace: options.source_workspace.clone(),
-            source_config: options.source_config.clone(),
+            source_workspace: if options.source_workspace.is_some() || resolved_workspace.exists() {
+                Some(resolved_workspace.clone())
+            } else {
+                None
+            },
+            source_config: if options.source_config.is_some() || resolved_config.exists() {
+                Some(resolved_config.clone())
+            } else {
+                None
+            },
             include_memory: true,
             include_config: true,
             dry_run: false,
@@ -547,10 +582,57 @@ async fn maybe_run_openclaw_migration(
     .await?;
 
     *config = load_config_without_env(config)?;
-    println!(
-        "  {} OpenClaw migration merged successfully",
-        style("✓").green().bold()
-    );
+
+    let report_json = serde_json::to_value(&report).unwrap_or(Value::Null);
+    let metric = |pointer: &str| -> u64 {
+        report_json
+            .pointer(pointer)
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+    };
+
+    let changed_units = metric("/memory/imported")
+        + metric("/memory/renamed_conflicts")
+        + metric("/config/defaults_added")
+        + metric("/config/channels_added")
+        + metric("/config/channels_merged")
+        + metric("/config/agents_added")
+        + metric("/config/agents_merged")
+        + metric("/config/agent_tools_added");
+
+    if changed_units > 0 {
+        println!(
+            "  {} OpenClaw migration merged successfully",
+            style("✓").green().bold()
+        );
+    } else {
+        println!(
+            "  {} OpenClaw migration completed with no data changes",
+            style("✓").green().bold()
+        );
+    }
+
+    if let Some(backups) = report_json.get("backups").and_then(Value::as_array) {
+        if !backups.is_empty() {
+            println!("  {} Backups:", style("🛟").cyan().bold());
+            for backup in backups {
+                if let Some(path) = backup.as_str() {
+                    println!("    - {path}");
+                }
+            }
+        }
+    }
+
+    if let Some(notes) = report_json.get("notes").and_then(Value::as_array) {
+        if !notes.is_empty() {
+            println!("  {} Notes:", style("ℹ").cyan().bold());
+            for note in notes {
+                if let Some(text) = note.as_str() {
+                    println!("    - {text}");
+                }
+            }
+        }
+    }
     Ok(())
 }
 

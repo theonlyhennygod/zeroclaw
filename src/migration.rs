@@ -301,7 +301,7 @@ fn print_report(report: &OpenClawMigrationReport) {
             report.memory.skipped_unchanged
         );
         println!(
-            "    skipped duplicate content:{}",
+            "    skipped duplicate content: {}",
             report.memory.skipped_duplicate_content
         );
         println!(
@@ -345,7 +345,7 @@ fn print_report(report: &OpenClawMigrationReport) {
             report.config.agent_tools_added
         );
         println!(
-            "    merge conflicts preserved:{}",
+            "    merge conflicts preserved: {}",
             report.config.merge_conflicts_preserved
         );
         println!(
@@ -1055,7 +1055,6 @@ fn read_openclaw_markdown_entries(source_workspace: &Path) -> Result<Vec<SourceE
     if core_path.exists() {
         let content = fs::read_to_string(&core_path)?;
         all.extend(parse_markdown_file(
-            &core_path,
             &content,
             MemoryCategory::Core,
             "openclaw_core",
@@ -1075,21 +1074,14 @@ fn read_openclaw_markdown_entries(source_workspace: &Path) -> Result<Vec<SourceE
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("openclaw_daily");
-            all.extend(parse_markdown_file(
-                &path,
-                &content,
-                MemoryCategory::Daily,
-                stem,
-            ));
+            all.extend(parse_markdown_file(&content, MemoryCategory::Daily, stem));
         }
     }
 
     Ok(all)
 }
 
-#[allow(clippy::needless_pass_by_value)]
 fn parse_markdown_file(
-    _path: &Path,
     content: &str,
     default_category: MemoryCategory,
     stem: &str,
@@ -1325,12 +1317,7 @@ mod tests {
 
     #[test]
     fn parse_unstructured_markdown_generates_key() {
-        let entries = parse_markdown_file(
-            Path::new("/tmp/MEMORY.md"),
-            "- plain note",
-            MemoryCategory::Core,
-            "core",
-        );
+        let entries = parse_markdown_file("- plain note", MemoryCategory::Core, "core");
         assert_eq!(entries.len(), 1);
         assert!(entries[0].key.starts_with("openclaw_core_"));
         assert_eq!(entries[0].content, "plain note");

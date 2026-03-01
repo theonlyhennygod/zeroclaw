@@ -306,7 +306,6 @@ pub fn all_tools_with_runtime(
         Arc::new(CheckProviderQuotaTool::new(config.clone())),
         Arc::new(SwitchProviderTool::new(config.clone())),
         Arc::new(EstimateQuotaCostTool),
-        Arc::new(OpenClawMigrationTool::new(config.clone(), security.clone())),
         Arc::new(PushoverTool::new(
             security.clone(),
             workspace_dir.to_path_buf(),
@@ -331,6 +330,10 @@ pub fn all_tools_with_runtime(
     }
 
     if has_filesystem_access {
+        tool_arcs.push(Arc::new(OpenClawMigrationTool::new(
+            config.clone(),
+            security.clone(),
+        )));
         tool_arcs.push(Arc::new(FileReadTool::new(security.clone())));
         tool_arcs.push(Arc::new(FileWriteTool::new(security.clone())));
         tool_arcs.push(Arc::new(FileEditTool::new(security.clone())));
@@ -812,6 +815,7 @@ mod tests {
         assert!(!names.contains(&"file_read"));
         assert!(!names.contains(&"file_write"));
         assert!(!names.contains(&"file_edit"));
+        assert!(!names.contains(&"openclaw_migration"));
     }
 
     #[test]

@@ -59,18 +59,28 @@ impl OpenClawMigrationTool {
         let Some(raw_value) = args.get(field) else {
             return Ok(default);
         };
+        if raw_value.is_null() {
+            return Ok(default);
+        }
         raw_value
             .as_bool()
             .ok_or_else(|| anyhow::anyhow!("'{field}' must be a boolean"))
     }
 
     async fn execute_action(&self, args: &Value) -> anyhow::Result<ToolResult> {
-        let action = args
-            .get("action")
-            .and_then(Value::as_str)
-            .unwrap_or("preview")
-            .trim()
-            .to_ascii_lowercase();
+        let action = match args.get("action") {
+            None | Some(Value::Null) => "preview".to_string(),
+            Some(raw_value) => match raw_value.as_str() {
+                Some(raw_action) => raw_action.trim().to_ascii_lowercase(),
+                None => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some("Invalid action type: expected string".to_string()),
+                    });
+                }
+            },
+        };
 
         let dry_run = match action.as_str() {
             "preview" => true,
@@ -124,6 +134,7 @@ impl Tool for OpenClawMigrationTool {
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
+            "additionalProperties": false,
             "properties": {
                 "action": {
                     "type": "string",
@@ -281,5 +292,44 @@ mod tests {
             error.contains("Nothing to migrate"),
             "unexpected error message: {error}"
         );
+    }
+
+    #[tokio::test]
+    async fn action_must_be_string_when_present() {
+        let target = TempDir::new().unwrap();
+        let config = test_config(&target);
+        let tool =
+            OpenClawMigrationTool::new(Arc::new(config), Arc::new(SecurityPolicy::default()));
+
+        let result = tool.execute(json!({ "action": 123 })).await.unwrap();
+        assert!(!result.success);
+        assert_eq!(
+            result.error.as_deref(),
+            Some("Invalid action type: expected string")
+        );
+    }
+
+    #[tokio::test]
+    async fn null_boolean_fields_use_defaults() {
+        let source = TempDir::new().unwrap();
+        let target = TempDir::new().unwrap();
+        seed_openclaw_workspace(source.path());
+
+        let config = test_config(&target);
+        let tool =
+            OpenClawMigrationTool::new(Arc::new(config), Arc::new(SecurityPolicy::default()));
+
+        let result = tool
+            .execute(json!({
+                "action": "preview",
+                "source_workspace": source.path().display().to_string(),
+                "include_memory": null,
+                "include_config": null
+            }))
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert!(result.output.contains("\"dry_run\": true"));
     }
 }

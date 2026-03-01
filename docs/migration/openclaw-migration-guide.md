@@ -17,6 +17,8 @@ zeroclaw migrate openclaw
 zeroclaw onboard --migrate-openclaw
 ```
 
+Localization status: this guide currently ships in English only. Localized follow-through for `zh-CN`, `ja`, `ru`, `fr`, `vi`, and `el` is deferred; translators should carry over the exact CLI forms `zeroclaw migrate openclaw` and `zeroclaw onboard --migrate-openclaw` first.
+
 Default migration semantics are **merge-first**:
 
 - Existing ZeroClaw values are preserved (no blind overwrite).

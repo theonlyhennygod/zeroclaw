@@ -21,6 +21,7 @@ mod tests {
         assert_reexport_exists(run_quick_setup);
         assert_reexport_exists(run_quick_setup_with_migration);
         assert_reexport_exists(run_wizard_with_migration);
+        let _: Option<OpenClawOnboardMigrationOptions> = None;
         assert_reexport_exists(run_models_refresh);
         assert_reexport_exists(run_models_list);
         assert_reexport_exists(run_models_set);
