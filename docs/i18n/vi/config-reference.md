@@ -14,9 +14,12 @@ ZeroClaw ghi log đường dẫn config đã giải quyết khi khởi động �
 
 - `Config loaded` với các trường: `path`, `workspace`, `source`, `initialized`
 
-Lệnh xuất schema:
+Lệnh CLI để kiểm tra và sửa đổi cấu hình:
 
-- `zeroclaw config schema` (xuất JSON Schema draft 2020-12 ra stdout)
+- `zeroclaw config show` — xuất cấu hình hiệu lực dạng JSON (ẩn secrets)
+- `zeroclaw config get <key>` — truy vấn giá trị theo đường dẫn (ví dụ: `zeroclaw config get gateway.port`)
+- `zeroclaw config set <key> <value>` — cập nhật giá trị và lưu vào `config.toml`
+- `zeroclaw config schema` — xuất JSON Schema (draft 2020-12) ra stdout
 
 ## Khóa chính
 
@@ -25,6 +28,14 @@ Lệnh xuất schema:
 | `default_provider` | `openrouter` | ID hoặc bí danh provider |
 | `default_model` | `anthropic/claude-sonnet-4-6` | Model định tuyến qua provider đã chọn |
 | `default_temperature` | `0.7` | Nhiệt độ model |
+| `model_support_vision` | chưa đặt (`None`) | Ghi đè hỗ trợ vision cho provider/model đang dùng |
+
+Lưu ý:
+
+- `model_support_vision = true` bật vision (ví dụ Ollama chạy `llava`).
+- `model_support_vision = false` tắt vision.
+- Để trống giữ mặc định của provider.
+- Biến môi trường: `ZEROCLAW_MODEL_SUPPORT_VISION` hoặc `MODEL_SUPPORT_VISION` (giá trị: `true`/`false`/`1`/`0`/`yes`/`no`/`on`/`off`).
 
 ## `[observability]`
 
@@ -65,15 +76,15 @@ Lưu ý cho người dùng container:
 
 | Khóa | Mặc định | Mục đích |
 |---|---|---|
-| `compact_context` | `false` | Khi bật: bootstrap_max_chars=6000, rag_chunk_limit=2. Dùng cho model 13B trở xuống |
-| `max_tool_iterations` | `10` | Số vòng lặp tool-call tối đa mỗi tin nhắn trên CLI, gateway và channels |
+| `compact_context` | `true` | Khi bật: bootstrap_max_chars=6000, rag_chunk_limit=2. Dùng cho model 13B trở xuống |
+| `max_tool_iterations` | `20` | Số vòng lặp tool-call tối đa mỗi tin nhắn trên CLI, gateway và channels |
 | `max_history_messages` | `50` | Số tin nhắn lịch sử tối đa giữ lại mỗi phiên |
 | `parallel_tools` | `false` | Bật thực thi tool song song trong một lượt |
 | `tool_dispatcher` | `auto` | Chiến lược dispatch tool |
 
 Lưu ý:
 
-- Đặt `max_tool_iterations = 0` sẽ dùng giá trị mặc định an toàn `10`.
+- Đặt `max_tool_iterations = 0` sẽ dùng giá trị mặc định an toàn `20`.
 - Nếu tin nhắn kênh vượt giá trị này, runtime trả về: `Agent exceeded maximum tool iterations (<value>)`.
 - Trong vòng lặp tool của CLI, gateway và channel, các lời gọi tool độc lập được thực thi đồng thời mặc định khi không cần phê duyệt; thứ tự kết quả giữ ổn định.
 - `parallel_tools` áp dụng cho API `Agent::turn()`. Không ảnh hưởng đến vòng lặp runtime của CLI, gateway hay channel.
@@ -127,6 +138,18 @@ Lưu ý:
 - `reasoning_enabled = false` tắt tường minh reasoning phía provider cho provider hỗ trợ (hiện tại `ollama`, qua trường `think: false`).
 - `reasoning_enabled = true` yêu cầu reasoning tường minh (`think: true` trên `ollama`).
 - Để trống giữ mặc định của provider.
+
+## `[provider]`
+
+| Khóa | Mặc định | Mục đích |
+|---|---|---|
+| `reasoning_level` | chưa đặt (`None`) | Ghi đè mức reasoning cho provider hỗ trợ mức (hiện tại OpenAI Codex `/responses`) |
+
+Lưu ý:
+
+- Giá trị hỗ trợ: `minimal`, `low`, `medium`, `high`, `xhigh` (không phân biệt hoa/thường).
+- Khi đặt, ghi đè `ZEROCLAW_CODEX_REASONING_EFFORT` cho OpenAI Codex.
+- Để trống sẽ dùng `ZEROCLAW_CODEX_REASONING_EFFORT` nếu có, nếu không mặc định `xhigh`.
 
 ## `[skills]`
 
@@ -258,6 +281,14 @@ Lưu ý:
 | `port` | `3000` | Cổng lắng nghe gateway |
 | `require_pairing` | `true` | Yêu cầu ghép nối trước khi xác thực bearer |
 | `allow_public_bind` | `false` | Chặn lộ public do vô ý |
+
+## `[gateway.node_control]` (thử nghiệm)
+
+| Khóa | Mặc định | Mục đích |
+|---|---|---|
+| `enabled` | `false` | Bật endpoint scaffold node-control (`POST /api/node-control`) |
+| `auth_token` | `null` | Shared token bổ sung, kiểm qua header `X-Node-Control-Token` |
+| `allowed_node_ids` | `[]` | Allowlist cho `node.describe`/`node.invoke` (`[]` = chấp nhận mọi node) |
 
 ## `[autonomy]`
 

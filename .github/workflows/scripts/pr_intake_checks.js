@@ -6,8 +6,6 @@ module.exports = async ({ github, context, core }) => {
   const repo = context.repo.repo;
   const pr = context.payload.pull_request;
   if (!pr) return;
-  const prAuthor = (pr.user?.login || "").toLowerCase();
-  const prBaseRef = pr.base?.ref || "";
 
   const marker = "<!-- pr-intake-checks -->";
   const legacyMarker = "<!-- pr-intake-sanity -->";
@@ -19,6 +17,10 @@ module.exports = async ({ github, context, core }) => {
     "## Rollback Plan (required)",
   ];
   const body = pr.body || "";
+  const linearKeyRegex = /\b(?:RMN|CDV|COM)-\d+\b/g;
+  const linearKeys = Array.from(
+    new Set([...(pr.title.match(linearKeyRegex) || []), ...(body.match(linearKeyRegex) || [])]),
+  );
 
   const missingSections = requiredSections.filter((section) => !body.includes(section));
   const missingFields = [];
@@ -85,13 +87,9 @@ module.exports = async ({ github, context, core }) => {
   if (dangerousProblems.length > 0) {
     blockingFindings.push(`Dangerous patch markers found (${dangerousProblems.length})`);
   }
-  const promotionAuthorAllowlist = new Set(["willsarg", "theonlyhennygod"]);
-  const shouldRetargetToDev =
-    prBaseRef === "main" && !promotionAuthorAllowlist.has(prAuthor);
-
-  if (shouldRetargetToDev) {
-    advisoryFindings.push(
-      "This PR targets `main`, but normal contributions must target `dev`. Retarget this PR to `dev` unless this is an authorized promotion PR.",
+  if (linearKeys.length === 0) {
+    blockingFindings.push(
+      "Missing Linear issue key reference (`RMN-<id>`, `CDV-<id>`, or `COM-<id>`) in PR title/body.",
     );
   }
 
@@ -136,13 +134,11 @@ module.exports = async ({ github, context, core }) => {
 
   const isBlocking = blockingFindings.length > 0;
 
-  const ownerApprovalNote = workflowFilesChanged.length > 0
+  const workflowChangeNote = workflowFilesChanged.length > 0
     ? [
         "",
         "Workflow files changed in this PR:",
         ...workflowFilesChanged.map((name) => `- \`${name}\``),
-        "",
-        "Reminder: workflow changes require owner approval via `CI Required Gate`.",
       ].join("\n")
     : "";
 
@@ -160,14 +156,14 @@ module.exports = async ({ github, context, core }) => {
     "",
     "Action items:",
     "1. Complete required PR template sections/fields.",
-    "2. Remove tabs, trailing whitespace, and merge conflict markers from added lines.",
-    "3. Re-run local checks before pushing:",
+    "2. Link this PR to exactly one active Linear issue key (`RMN-xxx`/`CDV-xxx`/`COM-xxx`).",
+    "3. Remove tabs, trailing whitespace, and merge conflict markers from added lines.",
+    "4. Re-run local checks before pushing:",
     "   - `./scripts/ci/rust_quality_gate.sh`",
     "   - `./scripts/ci/rust_strict_delta_gate.sh`",
     "   - `./scripts/ci/docs_quality_gate.sh`",
-    ...(shouldRetargetToDev
-      ? ["4. Retarget this PR base branch from `main` to `dev`."]
-      : []),
+    "",
+    `Detected Linear keys: ${linearKeys.length > 0 ? linearKeys.join(", ") : "none"}`,
     "",
     `Run logs: ${runUrl}`,
     "",
@@ -176,7 +172,7 @@ module.exports = async ({ github, context, core }) => {
     "",
     "Detected advisory line issues (sample):",
     ...(advisoryDetails.length > 0 ? advisoryDetails : ["- none"]),
-    ownerApprovalNote,
+    workflowChangeNote,
   ].join("\n");
 
   if (existing) {

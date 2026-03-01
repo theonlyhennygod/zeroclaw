@@ -37,15 +37,29 @@ cli = true
 
 Each channel is enabled by creating its sub-table (for example, `[channels_config.telegram]`).
 
-## In-Chat Runtime Model Switching (Telegram / Discord)
+One ZeroClaw runtime can serve multiple channels at once: if you configure several
+channel sub-tables, `zeroclaw channel start` launches all of them in the same process.
+Channel startup is best-effort: a single channel init failure is reported and skipped,
+while remaining channels continue running.
 
-When running `zeroclaw channel start` (or daemon mode), Telegram and Discord now support sender-scoped runtime switching:
+## In-Chat Runtime Commands
 
+When running `zeroclaw channel start` (or daemon mode), runtime commands include:
+
+Telegram/Discord sender-scoped model routing:
 - `/models` — show available providers and current selection
 - `/models <provider>` — switch provider for the current sender session
 - `/model` — show current model and cached model IDs (if available)
 - `/model <model-id>` — switch model for the current sender session
 - `/new` — clear conversation history and start a fresh session
+
+Supervised tool approvals (all non-CLI channels):
+- `/approve-request <tool-name>` — create a pending approval request
+- `/approve-confirm <request-id>` — confirm pending request (same sender + same chat/channel only)
+- `/approve-pending` — list pending requests for your current sender+chat/channel scope
+- `/approve <tool-name>` — direct one-step approve + persist (`autonomy.auto_approve`, compatibility path)
+- `/unapprove <tool-name>` — revoke and remove persisted approval
+- `/approvals` — inspect runtime grants, persisted approval lists, and excluded tools
 
 Notes:
 
@@ -53,6 +67,16 @@ Notes:
 - `/new` clears the sender's conversation history without changing provider or model selection.
 - Model cache previews come from `zeroclaw models refresh --provider <ID>`.
 - These are runtime chat commands, not CLI subcommands.
+- Natural-language approval intents are supported with strict parsing and policy control:
+  - `direct` mode (default): `授权工具 shell` grants immediately.
+  - `request_confirm` mode: `授权工具 shell` creates pending request, then confirm with request ID.
+  - `disabled` mode: approval-management must use slash commands.
+- You can override natural-language approval mode per channel via `[autonomy].non_cli_natural_language_approval_mode_by_channel`.
+- Approval commands are intercepted before LLM execution, so the model cannot self-escalate permissions through tool calls.
+- You can restrict who can use approval-management commands via `[autonomy].non_cli_approval_approvers`.
+- Configure natural-language approval mode via `[autonomy].non_cli_natural_language_approval_mode`.
+- `autonomy.non_cli_excluded_tools` is reloaded from `config.toml` at runtime; `/approvals` shows the currently effective list.
+- Each incoming message injects a runtime tool-availability snapshot into the system prompt, derived from the same exclusion policy used by execution.
 
 ## Inbound Image Marker Protocol
 
@@ -76,26 +100,26 @@ Operational notes:
 
 Matrix and Lark support are controlled at compile time.
 
-- Default builds are lean (`default = []`) and do not include Matrix/Lark.
-- Typical local check with only hardware support:
+- Default builds include Lark/Feishu (`default = ["channel-lark"]`), while Matrix remains opt-in.
+- For a lean local build without Matrix/Lark:
 
 ```bash
-cargo check --features hardware
+cargo check --no-default-features --features hardware
 ```
 
-- Enable Matrix explicitly when needed:
+- Enable Matrix explicitly in a custom feature set:
 
 ```bash
-cargo check --features hardware,channel-matrix
+cargo check --no-default-features --features hardware,channel-matrix
 ```
 
-- Enable Lark explicitly when needed:
+- Enable Lark explicitly in a custom feature set:
 
 ```bash
-cargo check --features hardware,channel-lark
+cargo check --no-default-features --features hardware,channel-lark
 ```
 
-If `[channels_config.matrix]`, `[channels_config.lark]`, or `[channels_config.feishu]` is present but the corresponding feature is not compiled in, `zeroclaw channel list`, `zeroclaw channel doctor`, and `zeroclaw channel start` will report that the channel is intentionally skipped for this build.
+If `[channels_config.matrix]`, `[channels_config.lark]`, or `[channels_config.feishu]` is present but the corresponding feature is not compiled in, `zeroclaw channel list`, `zeroclaw channel doctor`, and `zeroclaw channel start` will report that the channel is intentionally skipped for this build. The same applies to cron delivery: setting `delivery.channel` to a feature-gated channel in a build without that feature will return an error at delivery time. For Matrix cron delivery, only plain rooms are supported; E2EE rooms require listener sessions via `zeroclaw daemon`.
 
 ---
 
@@ -119,8 +143,10 @@ If `[channels_config.matrix]`, `[channels_config.lark]`, or `[channels_config.fe
 | Feishu | websocket (default) or webhook | Webhook mode only |
 | DingTalk | stream mode | No |
 | QQ | bot gateway | No |
+| Napcat | websocket receive + HTTP send (OneBot) | No (typically local/LAN) |
 | Linq | webhook (`/linq`) | Yes (public HTTPS callback) |
 | iMessage | local integration | No |
+| ACP | stdio (JSON-RPC 2.0) | No |
 | Nostr | relay websocket (NIP-04 / NIP-17) | No |
 
 ---
@@ -135,12 +161,33 @@ For channels with inbound sender allowlists:
 
 Field names differ by channel:
 
-- `allowed_users` (Telegram/Discord/Slack/Mattermost/Matrix/IRC/Lark/Feishu/DingTalk/QQ/Nextcloud Talk)
+- `allowed_users` (Telegram/Discord/Slack/Mattermost/Matrix/IRC/Lark/Feishu/DingTalk/QQ/Napcat/Nextcloud Talk/ACP)
 - `allowed_from` (Signal)
 - `allowed_numbers` (WhatsApp)
 - `allowed_senders` (Email/Linq)
 - `allowed_contacts` (iMessage)
 - `allowed_pubkeys` (Nostr)
+
+### Group-Chat Trigger Policy (Telegram/Discord/Slack/Mattermost/Lark/Feishu)
+
+These channels support an explicit `group_reply` policy:
+
+- `mode = "all_messages"`: reply to all group messages (subject to channel allowlist checks).
+- `mode = "mention_only"`: in groups, require explicit bot mention.
+- `allowed_sender_ids`: sender IDs that bypass mention gating in groups.
+
+Important behavior:
+
+- `allowed_sender_ids` only bypasses mention gating.
+- Sender allowlists (`allowed_users`) are still enforced first.
+
+Example shape:
+
+```toml
+[channels_config.telegram.group_reply]
+mode = "mention_only"                      # all_messages | mention_only
+allowed_sender_ids = ["123456789", "987"] # optional; "*" allowed
+```
 
 ---
 
@@ -154,14 +201,20 @@ bot_token = "123456:telegram-token"
 allowed_users = ["*"]
 stream_mode = "off"               # optional: off | partial
 draft_update_interval_ms = 1000   # optional: edit throttle for partial streaming
-mention_only = false              # optional: require @mention in groups
+mention_only = false              # legacy fallback; used when group_reply.mode is not set
 interrupt_on_new_message = false  # optional: cancel in-flight same-sender same-chat request
+ack_enabled = true                # optional: send emoji reaction acknowledgments (default: true)
+
+[channels_config.telegram.group_reply]
+mode = "all_messages"             # optional: all_messages | mention_only
+allowed_sender_ids = []           # optional: sender IDs that bypass mention gate
 ```
 
 Telegram notes:
 
 - `interrupt_on_new_message = true` preserves interrupted user turns in conversation history, then restarts generation on the newest message.
 - Interruption scope is strict: same sender in the same chat. Messages from different chats are processed independently.
+- `ack_enabled = false` disables the emoji reaction (⚡️, 👌, 👀, 🔥, 👍) sent to incoming messages as acknowledgment.
 
 ### 4.2 Discord
 
@@ -171,7 +224,11 @@ bot_token = "discord-bot-token"
 guild_id = "123456789012345678"   # optional
 allowed_users = ["*"]
 listen_to_bots = false
-mention_only = false
+mention_only = false              # legacy fallback; used when group_reply.mode is not set
+
+[channels_config.discord.group_reply]
+mode = "all_messages"             # optional: all_messages | mention_only
+allowed_sender_ids = []           # optional: sender IDs that bypass mention gate
 ```
 
 ### 4.3 Slack
@@ -182,6 +239,10 @@ bot_token = "xoxb-..."
 app_token = "xapp-..."             # optional
 channel_id = "C1234567890"         # optional: single channel; omit or "*" for all accessible channels
 allowed_users = ["*"]
+
+[channels_config.slack.group_reply]
+mode = "all_messages"              # optional: all_messages | mention_only
+allowed_sender_ids = []            # optional: sender IDs that bypass mention gate
 ```
 
 Slack listen behavior:
@@ -197,6 +258,11 @@ url = "https://mm.example.com"
 bot_token = "mattermost-token"
 channel_id = "channel-id"          # required for listening
 allowed_users = ["*"]
+mention_only = false               # legacy fallback; used when group_reply.mode is not set
+
+[channels_config.mattermost.group_reply]
+mode = "all_messages"              # optional: all_messages | mention_only
+allowed_sender_ids = []            # optional: sender IDs that bypass mention gate
 ```
 
 ### 4.5 Matrix
@@ -209,6 +275,7 @@ user_id = "@zeroclaw:matrix.example.com"   # optional, recommended for E2EE
 device_id = "DEVICEID123"                  # optional, recommended for E2EE
 room_id = "!room:matrix.example.com"       # or room alias (#ops:matrix.example.com)
 allowed_users = ["*"]
+mention_only = false                       # optional: when true, only DM / @mention / reply-to-bot
 ```
 
 See [Matrix E2EE Guide](./matrix-e2ee-guide.md) for encrypted-room troubleshooting.
@@ -286,7 +353,11 @@ password = "email-password"
 from_address = "bot@example.com"
 poll_interval_secs = 60
 allowed_senders = ["*"]
+imap_id = { enabled = true, name = "zeroclaw", version = "0.1.7", vendor = "zeroclaw-labs" }
 ```
+
+`imap_id` sends RFC 2971 client metadata right after IMAP login. This is required by some providers
+(for example NetEase `163.com` / `126.com`) before mailbox selection is allowed.
 
 ### 4.10 IRC
 
@@ -308,34 +379,44 @@ verify_tls = true
 
 ```toml
 [channels_config.lark]
-app_id = "cli_xxx"
-app_secret = "xxx"
+app_id = "your_lark_app_id"
+app_secret = "your_lark_app_secret"
 encrypt_key = ""                    # optional
 verification_token = ""             # optional
 allowed_users = ["*"]
-mention_only = false              # optional: require @mention in groups (DMs always allowed)
+mention_only = false                # legacy fallback; used when group_reply.mode is not set
 use_feishu = false
 receive_mode = "websocket"          # or "webhook"
 port = 8081                          # required for webhook mode
+
+[channels_config.lark.group_reply]
+mode = "all_messages"               # optional: all_messages | mention_only
+allowed_sender_ids = []             # optional: sender open_ids that bypass mention gate
 ```
 
 ### 4.12 Feishu
 
 ```toml
 [channels_config.feishu]
-app_id = "cli_xxx"
-app_secret = "xxx"
+app_id = "your_lark_app_id"
+app_secret = "your_lark_app_secret"
 encrypt_key = ""                    # optional
 verification_token = ""             # optional
 allowed_users = ["*"]
 receive_mode = "websocket"          # or "webhook"
 port = 8081                          # required for webhook mode
+
+[channels_config.feishu.group_reply]
+mode = "all_messages"               # optional: all_messages | mention_only
+allowed_sender_ids = []             # optional: sender open_ids that bypass mention gate
 ```
 
 Migration note:
 
 - Legacy config `[channels_config.lark] use_feishu = true` is still supported for backward compatibility.
 - Prefer `[channels_config.feishu]` for new setups.
+- Inbound `image` messages are converted to multimodal markers (`[IMAGE:data:image/...;base64,...]`).
+- If image download fails, ZeroClaw forwards fallback text instead of silently dropping the message.
 
 ### 4.13 Nostr
 
@@ -385,9 +466,38 @@ allowed_users = ["*"]
 app_id = "qq-app-id"
 app_secret = "qq-app-secret"
 allowed_users = ["*"]
+receive_mode = "webhook" # webhook (default) or websocket (legacy fallback)
+environment = "production" # production (default) or sandbox
 ```
 
-### 4.16 Nextcloud Talk
+Notes:
+
+- `webhook` mode is now the default and serves inbound callbacks at `POST /qq`.
+- Set `environment = "sandbox"` to target `https://sandbox.api.sgroup.qq.com` for unpublished bot testing.
+- QQ validation challenge payloads (`op = 13`) are auto-signed using `app_secret`.
+- `X-Bot-Appid` is checked when present and must match `app_id`.
+- Set `receive_mode = "websocket"` to keep the legacy gateway WS receive path.
+
+### 4.16 Napcat (QQ via OneBot)
+
+```toml
+[channels_config.napcat]
+websocket_url = "ws://127.0.0.1:3001"
+api_base_url = "http://127.0.0.1:3001"  # optional; auto-derived when omitted
+access_token = ""                         # optional
+allowed_users = ["*"]
+```
+
+Notes:
+
+- Inbound messages are consumed from Napcat's WebSocket stream.
+- Outbound sends use OneBot-compatible HTTP endpoints (`send_private_msg` / `send_group_msg`).
+- Recipients:
+  - `user:<qq_user_id>` for private messages
+  - `group:<qq_group_id>` for group messages
+- Outbound reply chaining uses incoming message ids via CQ reply tags.
+
+### 4.17 Nextcloud Talk
 
 ```toml
 [channels_config.nextcloud_talk]
@@ -405,7 +515,7 @@ Notes:
 - `ZEROCLAW_NEXTCLOUD_TALK_WEBHOOK_SECRET` overrides config secret.
 - See [nextcloud-talk-setup.md](./nextcloud-talk-setup.md) for a full runbook.
 
-### 4.16 Linq
+### 4.18 Linq
 
 ```toml
 [channels_config.linq]
@@ -424,12 +534,31 @@ Notes:
 - `ZEROCLAW_LINQ_SIGNING_SECRET` overrides config secret.
 - `allowed_senders` uses E.164 phone number format (e.g. `+1234567890`).
 
-### 4.17 iMessage
+### 4.19 iMessage
 
 ```toml
 [channels_config.imessage]
 allowed_contacts = ["*"]
 ```
+
+### 4.18 ACP
+
+ACP (Agent Client Protocol) enables ZeroClaw to act as a client for OpenCode ACP server,
+allowing remote control of OpenCode behavior through JSON-RPC 2.0 communication over stdio.
+
+```toml
+[channels_config.acp]
+opencode_path = "opencode"  # optional, default: "opencode"
+workdir = "/path/to/workspace"  # optional
+extra_args = []  # optional additional arguments to `opencode acp`
+allowed_users = ["*"]  # empty = deny all, "*" = allow all
+```
+
+Notes:
+- ACP uses JSON-RPC 2.0 protocol over stdio with newline-delimited messages.
+- Requires `opencode` binary in PATH or specified via `opencode_path`.
+- The channel starts OpenCode subprocess via `opencode acp` command.
+- Responses from OpenCode can be sent back to the originating channel when configured.
 
 ---
 
@@ -479,7 +608,7 @@ RUST_LOG=info zeroclaw daemon 2>&1 | tee /tmp/zeroclaw.log
 Then filter channel/gateway events:
 
 ```bash
-rg -n "Matrix|Telegram|Discord|Slack|Mattermost|Signal|WhatsApp|Email|IRC|Lark|DingTalk|QQ|iMessage|Nostr|Webhook|Channel" /tmp/zeroclaw.log
+rg -n "Matrix|Telegram|Discord|Slack|Mattermost|Signal|WhatsApp|Email|IRC|Lark|DingTalk|QQ|iMessage|Nostr|Webhook|Channel|ACP" /tmp/zeroclaw.log
 ```
 
 ### 7.2 Keyword table
@@ -501,6 +630,7 @@ rg -n "Matrix|Telegram|Discord|Slack|Mattermost|Signal|WhatsApp|Email|IRC|Lark|D
 | QQ | `QQ: connected and identified` | `QQ: ignoring C2C message from unauthorized user:` / `QQ: ignoring group message from unauthorized user:` | `QQ: received Reconnect (op 7)` / `QQ: received Invalid Session (op 9)` / `QQ: message channel closed` |
 | Nextcloud Talk (gateway) | `POST /nextcloud-talk — Nextcloud Talk bot webhook` | `Nextcloud Talk webhook signature verification failed` / `Nextcloud Talk: ignoring message from unauthorized actor:` | `Nextcloud Talk send failed:` / `LLM error for Nextcloud Talk message:` |
 | iMessage | `iMessage channel listening (AppleScript bridge)...` | (contact allowlist enforced by `allowed_contacts`) | `iMessage poll error:` |
+| ACP | `ACP channel started` | `ACP: ignoring message from unauthorized user:` | `ACP process exited unexpectedly:` / `ACP JSON-RPC timeout:` / `ACP process spawn failed:` |
 | Nostr | `Nostr channel listening as npub1...` | `Nostr: ignoring NIP-04 message from unauthorized pubkey:` / `Nostr: ignoring NIP-17 message from unauthorized pubkey:` | `Failed to decrypt NIP-04 message:` / `Failed to unwrap NIP-17 gift wrap:` / `Nostr relay pool shut down` |
 
 ### 7.3 Runtime supervisor keywords

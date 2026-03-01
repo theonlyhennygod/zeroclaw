@@ -324,11 +324,10 @@ fn memory_date_from_filename(filename: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(date_part, "%Y-%m-%d").ok()
 }
 
+#[allow(clippy::incompatible_msrv)]
 fn date_prefix(filename: &str) -> Option<NaiveDate> {
-    if filename.len() < 10 {
-        return None;
-    }
-    NaiveDate::parse_from_str(&filename[..filename.floor_char_boundary(10)], "%Y-%m-%d").ok()
+    let prefix = filename.get(..10)?;
+    NaiveDate::parse_from_str(prefix, "%Y-%m-%d").ok()
 }
 
 fn is_older_than(path: &Path, cutoff: SystemTime) -> bool {

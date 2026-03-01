@@ -2,7 +2,11 @@
 //!
 //! See `docs/hardware-peripherals-design.md` for the full design.
 
+pub mod device;
+pub mod gpio;
+pub mod protocol;
 pub mod registry;
+pub mod transport;
 
 #[cfg(all(
     feature = "hardware",
@@ -16,11 +20,29 @@ pub mod discover;
 ))]
 pub mod introspect;
 
+#[cfg(feature = "hardware")]
+pub mod serial;
+
 use crate::config::Config;
 use anyhow::Result;
 
 // Re-export config types so wizard can use `hardware::HardwareConfig` etc.
 pub use crate::config::{HardwareConfig, HardwareTransport};
+#[allow(unused_imports)]
+pub use device::{
+    Device, DeviceCapabilities, DeviceContext, DeviceKind, DeviceRegistry, DeviceRuntime,
+    NO_HW_DEVICES_SUMMARY,
+};
+#[allow(unused_imports)]
+pub use gpio::{gpio_tools, GpioReadTool, GpioWriteTool};
+#[allow(unused_imports)]
+pub use protocol::{ZcCommand, ZcResponse};
+#[allow(unused_imports)]
+pub use transport::{Transport, TransportError, TransportKind};
+
+#[cfg(feature = "hardware")]
+#[allow(unused_imports)]
+pub use serial::HardwareSerialTransport;
 
 /// A hardware device discovered during auto-scan.
 #[derive(Debug, Clone)]
@@ -109,7 +131,7 @@ pub fn handle_command(cmd: crate::HardwareCommands, _config: &Config) -> Result<
         let _ = &cmd;
         println!("Hardware discovery requires the 'hardware' feature.");
         println!("Build with: cargo build --features hardware");
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(all(

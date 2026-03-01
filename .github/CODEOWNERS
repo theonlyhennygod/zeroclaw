@@ -1,5 +1,5 @@
 # Default owner for all files
-* @chumyin
+* @theonlyhennygod @chumyin
 
 # Important functional modules
 /src/agent/** @theonlyhennygod
@@ -8,7 +8,7 @@
 /src/tools/** @theonlyhennygod
 /src/gateway/** @theonlyhennygod
 /src/runtime/** @theonlyhennygod
-/src/memory/** @theonlyhennygod
+/src/memory/** @theonlyhennygod @chumyin
 /Cargo.toml @theonlyhennygod
 /Cargo.lock @theonlyhennygod
 

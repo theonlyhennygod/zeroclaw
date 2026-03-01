@@ -19,7 +19,6 @@ Workflow behavior documentation in this directory:
 
 Current workflow helper scripts:
 
-- `.github/workflows/scripts/ci_workflow_owner_approval.js`
 - `.github/workflows/scripts/ci_license_file_owner_guard.js`
 - `.github/workflows/scripts/lint_feedback.js`
 - `.github/workflows/scripts/pr_auto_response_contributor_tier.js`
@@ -28,3 +27,9 @@ Current workflow helper scripts:
 - `.github/workflows/scripts/pr_intake_checks.js`
 - `.github/workflows/scripts/pr_labeler.js`
 - `.github/workflows/scripts/test_benchmarks_pr_comment.js`
+
+Release/CI policy assets introduced for advanced delivery lanes:
+
+- `.github/release/nightly-owner-routing.json`
+- `.github/release/canary-policy.json`
+- `.github/release/prerelease-stage-gates.json`

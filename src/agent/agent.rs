@@ -1,9 +1,11 @@
 use crate::agent::dispatcher::{
     NativeToolDispatcher, ParsedToolCall, ToolDispatcher, ToolExecutionResult, XmlToolDispatcher,
 };
+use crate::agent::loop_::detection::{DetectionVerdict, LoopDetectionConfig, LoopDetector};
 use crate::agent::memory_loader::{DefaultMemoryLoader, MemoryLoader};
 use crate::agent::prompt::{PromptContext, SystemPromptBuilder};
-use crate::config::Config;
+use crate::agent::research;
+use crate::config::{Config, ResearchPhaseConfig};
 use crate::memory::{self, Memory, MemoryCategory};
 use crate::observability::{self, Observer, ObserverEvent};
 use crate::providers::{self, ChatMessage, ChatRequest, ConversationMessage, Provider};
@@ -15,6 +17,8 @@ use std::collections::HashMap;
 use std::io::Write as IoWrite;
 use std::sync::Arc;
 use std::time::Instant;
+
+const AUTOSAVE_MIN_MESSAGE_CHARS: usize = 20;
 
 pub struct Agent {
     provider: Box<dyn Provider>,
@@ -37,6 +41,7 @@ pub struct Agent {
     classification_config: crate::config::QueryClassificationConfig,
     available_hints: Vec<String>,
     route_model_by_hint: HashMap<String, String>,
+    research_config: ResearchPhaseConfig,
 }
 
 pub struct AgentBuilder {
@@ -58,6 +63,7 @@ pub struct AgentBuilder {
     classification_config: Option<crate::config::QueryClassificationConfig>,
     available_hints: Option<Vec<String>>,
     route_model_by_hint: Option<HashMap<String, String>>,
+    research_config: Option<ResearchPhaseConfig>,
 }
 
 impl AgentBuilder {
@@ -81,6 +87,7 @@ impl AgentBuilder {
             classification_config: None,
             available_hints: None,
             route_model_by_hint: None,
+            research_config: None,
         }
     }
 
@@ -180,6 +187,11 @@ impl AgentBuilder {
         self
     }
 
+    pub fn research_config(mut self, research_config: ResearchPhaseConfig) -> Self {
+        self.research_config = Some(research_config);
+        self
+    }
+
     pub fn build(self) -> Result<Agent> {
         let tools = self
             .tools
@@ -208,9 +220,7 @@ impl AgentBuilder {
                 .memory_loader
                 .unwrap_or_else(|| Box::new(DefaultMemoryLoader::default())),
             config: self.config.unwrap_or_default(),
-            model_name: self
-                .model_name
-                .unwrap_or_else(|| "anthropic/claude-sonnet-4-20250514".into()),
+            model_name: crate::config::resolve_default_model_id(self.model_name.as_deref(), None),
             temperature: self.temperature.unwrap_or(0.7),
             workspace_dir: self
                 .workspace_dir
@@ -223,6 +233,7 @@ impl AgentBuilder {
             classification_config: self.classification_config.unwrap_or_default(),
             available_hints: self.available_hints.unwrap_or_default(),
             route_model_by_hint: self.route_model_by_hint.unwrap_or_default(),
+            research_config: self.research_config.unwrap_or_default(),
         })
     }
 }
@@ -241,6 +252,10 @@ impl Agent {
     }
 
     pub fn from_config(config: &Config) -> Result<Self> {
+        if let Err(error) = crate::plugins::runtime::initialize_from_config(&config.plugins) {
+            tracing::warn!("plugin registry initialization skipped: {error}");
+        }
+
         let observer: Arc<dyn Observer> =
             Arc::from(observability::create_observer(&config.observability));
         let runtime: Arc<dyn runtime::RuntimeAdapter> =
@@ -287,11 +302,10 @@ impl Agent {
 
         let provider_name = config.default_provider.as_deref().unwrap_or("openrouter");
 
-        let model_name = config
-            .default_model
-            .as_deref()
-            .unwrap_or("anthropic/claude-sonnet-4-20250514")
-            .to_string();
+        let model_name = crate::config::resolve_default_model_id(
+            config.default_model.as_deref(),
+            Some(provider_name),
+        );
 
         let provider: Box<dyn Provider> = providers::create_routed_provider(
             provider_name,
@@ -342,6 +356,7 @@ impl Agent {
             ))
             .skills_prompt_mode(config.skills.prompt_injection_mode)
             .auto_save(config.memory.auto_save)
+            .research_config(config.research.clone())
             .build()
     }
 
@@ -486,19 +501,73 @@ impl Agent {
             .await
             .unwrap_or_default();
 
-        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
-        let enriched = if context.is_empty() {
-            format!("[{now}] {user_message}")
+        // ── Research Phase ──────────────────────────────────────────────
+        // If enabled and triggered, run a focused research turn to gather
+        // information before the main response.
+        let research_context = if research::should_trigger(&self.research_config, user_message) {
+            if self.research_config.show_progress {
+                println!("[Research] Gathering information...");
+            }
+
+            match research::run_research_phase(
+                &self.research_config,
+                self.provider.as_ref(),
+                &self.tools,
+                user_message,
+                &self.model_name,
+                self.temperature,
+                self.observer.clone(),
+            )
+            .await
+            {
+                Ok(result) => {
+                    if self.research_config.show_progress {
+                        println!(
+                            "[Research] Complete: {} tool calls, {} chars context",
+                            result.tool_call_count,
+                            result.context.len()
+                        );
+                        for summary in &result.tool_summaries {
+                            println!("  - {}: {}", summary.tool_name, summary.result_preview);
+                        }
+                    }
+                    if result.context.is_empty() {
+                        None
+                    } else {
+                        Some(result.context)
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Research phase failed: {}", e);
+                    None
+                }
+            }
         } else {
-            format!("{context}[{now}] {user_message}")
+            None
+        };
+
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S %Z");
+        let stamped_user_message = format!("[{now}] {user_message}");
+        let enriched = match (&context, &research_context) {
+            (c, Some(r)) if !c.is_empty() => {
+                format!("{c}\n\n{r}\n\n{stamped_user_message}")
+            }
+            (_, Some(r)) => format!("{r}\n\n{stamped_user_message}"),
+            (c, None) if !c.is_empty() => format!("{c}{stamped_user_message}"),
+            _ => stamped_user_message,
         };
 
         self.history
             .push(ConversationMessage::Chat(ChatMessage::user(enriched)));
 
         let effective_model = self.classify_model(user_message);
+        let mut loop_detector = LoopDetector::new(LoopDetectionConfig {
+            no_progress_threshold: self.config.loop_detection_no_progress_threshold,
+            ping_pong_cycles: self.config.loop_detection_ping_pong_cycles,
+            failure_streak_threshold: self.config.loop_detection_failure_streak,
+        });
 
-        for _ in 0..self.config.max_tool_iterations {
+        for iteration in 0..self.config.max_tool_iterations {
             let messages = self.tool_dispatcher.to_provider_messages(&self.history);
             let response = match self
                 .provider
@@ -532,6 +601,17 @@ impl Agent {
                     .push(ConversationMessage::Chat(ChatMessage::assistant(
                         final_text.clone(),
                     )));
+                if self.auto_save && final_text.chars().count() >= AUTOSAVE_MIN_MESSAGE_CHARS {
+                    let _ = self
+                        .memory
+                        .store(
+                            "assistant_resp",
+                            &final_text,
+                            MemoryCategory::Conversation,
+                            None,
+                        )
+                        .await;
+                }
                 self.trim_history();
 
                 return Ok(final_text);
@@ -553,9 +633,34 @@ impl Agent {
             });
 
             let results = self.execute_tools(&calls).await;
+
+            // ── Loop detection: record calls ─────────────────────
+            for (call, result) in calls.iter().zip(results.iter()) {
+                let args_sig =
+                    serde_json::to_string(&call.arguments).unwrap_or_else(|_| "{}".into());
+                loop_detector.record_call(&call.name, &args_sig, &result.output, result.success);
+            }
+
             let formatted = self.tool_dispatcher.format_results(&results);
             self.history.push(formatted);
             self.trim_history();
+
+            // ── Loop detection: check verdict ────────────────────
+            match loop_detector.check() {
+                DetectionVerdict::Continue => {}
+                DetectionVerdict::InjectWarning(warning) => {
+                    self.history
+                        .push(ConversationMessage::Chat(ChatMessage::user(warning)));
+                }
+                DetectionVerdict::HardStop(reason) => {
+                    anyhow::bail!(
+                        "Agent stopped early due to detected loop pattern (iteration {}/{}): {}",
+                        iteration + 1,
+                        self.config.max_tool_iterations,
+                        reason
+                    );
+                }
+            }
         }
 
         anyhow::bail!(
@@ -623,8 +728,12 @@ pub async fn run(
     let model_name = effective_config
         .default_model
         .as_deref()
-        .unwrap_or("anthropic/claude-sonnet-4-20250514")
-        .to_string();
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            crate::config::default_model_fallback_for_provider(Some(&provider_name)).to_string()
+        });
 
     agent.observer.record_event(&ObserverEvent::AgentStart {
         provider: provider_name.clone(),
@@ -655,6 +764,7 @@ mod tests {
     use async_trait::async_trait;
     use parking_lot::Mutex;
     use std::collections::HashMap;
+    use tempfile::TempDir;
 
     struct MockProvider {
         responses: Mutex<Vec<crate::providers::ChatResponse>>,
@@ -685,6 +795,7 @@ mod tests {
                     tool_calls: vec![],
                     usage: None,
                     reasoning_content: None,
+                    quota_metadata: None,
                 });
             }
             Ok(guard.remove(0))
@@ -722,6 +833,7 @@ mod tests {
                     tool_calls: vec![],
                     usage: None,
                     reasoning_content: None,
+                    quota_metadata: None,
                 });
             }
             Ok(guard.remove(0))
@@ -761,6 +873,7 @@ mod tests {
                 tool_calls: vec![],
                 usage: None,
                 reasoning_content: None,
+                quota_metadata: None,
             }]),
         });
 
@@ -801,12 +914,14 @@ mod tests {
                     }],
                     usage: None,
                     reasoning_content: None,
+                    quota_metadata: None,
                 },
                 crate::providers::ChatResponse {
                     text: Some("done".into()),
                     tool_calls: vec![],
                     usage: None,
                     reasoning_content: None,
+                    quota_metadata: None,
                 },
             ]),
         });
@@ -848,6 +963,7 @@ mod tests {
                 tool_calls: vec![],
                 usage: None,
                 reasoning_content: None,
+                quota_metadata: None,
             }]),
             seen_models: seen_models.clone(),
         });
@@ -891,5 +1007,45 @@ mod tests {
         assert_eq!(response, "classified");
         let seen = seen_models.lock();
         assert_eq!(seen.as_slice(), &["hint:fast".to_string()]);
+    }
+
+    #[test]
+    fn from_config_loads_plugin_declared_tools() {
+        let tmp = TempDir::new().expect("temp dir");
+        let plugin_dir = tmp.path().join("plugins");
+        std::fs::create_dir_all(&plugin_dir).expect("create plugin dir");
+        std::fs::create_dir_all(tmp.path().join("workspace")).expect("create workspace dir");
+
+        std::fs::write(
+            plugin_dir.join("agent_from_config.plugin.toml"),
+            r#"
+id = "agent-from-config"
+version = "1.0.0"
+module_path = "plugins/agent-from-config.wasm"
+wit_packages = ["zeroclaw:tools@1.0.0"]
+
+[[tools]]
+name = "__agent_from_config_plugin_tool"
+description = "plugin tool exposed for from_config tests"
+"#,
+        )
+        .expect("write plugin manifest");
+
+        let mut config = Config::default();
+        config.workspace_dir = tmp.path().join("workspace");
+        config.config_path = tmp.path().join("config.toml");
+        config.default_provider = Some("ollama".to_string());
+        config.memory.backend = "none".to_string();
+        config.plugins = crate::config::PluginsConfig {
+            enabled: true,
+            load_paths: vec![plugin_dir.to_string_lossy().to_string()],
+            ..crate::config::PluginsConfig::default()
+        };
+
+        let agent = Agent::from_config(&config).expect("agent from config should build");
+        assert!(agent
+            .tools
+            .iter()
+            .any(|tool| tool.name() == "__agent_from_config_plugin_tool"));
     }
 }
