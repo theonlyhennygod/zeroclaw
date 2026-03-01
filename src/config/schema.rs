@@ -2964,8 +2964,15 @@ impl Default for HooksConfig {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct BuiltinHooksConfig {
+    /// Enable the boot-script hook (injects startup/runtime guidance).
+    #[serde(default)]
+    pub boot_script: bool,
     /// Enable the command-logger hook (logs tool calls for auditing).
+    #[serde(default)]
     pub command_logger: bool,
+    /// Enable the session-memory hook (persists session hints between turns).
+    #[serde(default)]
+    pub session_memory: bool,
 }
 
 // ── Plugin system ─────────────────────────────────────────────────────────────

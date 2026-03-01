@@ -2050,7 +2050,9 @@ pub async fn run(
     }
     system_prompt.push_str(&build_shell_policy_instructions(&config.autonomy));
 
-    let hooks = crate::hooks::HookRunner::from_config(&config.hooks).map(std::sync::Arc::new);
+    let configured_hooks =
+        crate::hooks::HookRunner::from_config(&config.hooks).map(std::sync::Arc::new);
+    let effective_hooks = hooks.or_else(|| configured_hooks.as_deref());
 
     // ── Approval manager (supervised mode) ───────────────────────
     let approval_manager = if interactive {
@@ -2128,7 +2130,7 @@ pub async fn run(
                         config.agent.max_tool_iterations,
                         None,
                         None,
-                        hooks.as_deref(),
+                        effective_hooks,
                         &[],
                     ),
                 ),
@@ -2305,7 +2307,7 @@ pub async fn run(
                             config.agent.max_tool_iterations,
                             None,
                             None,
-                            hooks.as_deref(),
+                            effective_hooks,
                             &[],
                         ),
                     ),
@@ -2365,7 +2367,7 @@ pub async fn run(
                 provider.as_ref(),
                 &model_name,
                 config.agent.max_history_messages,
-                hooks.as_deref(),
+                effective_hooks,
             )
             .await
             {
