@@ -113,6 +113,7 @@ impl Clone for ActionTracker {
 
 /// Security policy enforced on all tool executions
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct SecurityPolicy {
     pub autonomy: AutonomyLevel,
     pub workspace_dir: PathBuf,
