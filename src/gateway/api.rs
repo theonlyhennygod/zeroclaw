@@ -8,7 +8,9 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Json},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 
 const MASKED_SECRET: &str = "***MASKED***";
 
@@ -64,6 +66,383 @@ pub struct CronAddBody {
     pub name: Option<String>,
     pub schedule: String,
     pub command: String,
+}
+
+#[derive(Deserialize)]
+pub struct IntegrationCredentialsUpdateBody {
+    pub revision: Option<String>,
+    #[serde(default)]
+    pub fields: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct IntegrationCredentialsField {
+    key: String,
+    label: String,
+    required: bool,
+    has_value: bool,
+    input_type: &'static str,
+    #[serde(default)]
+    options: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    masked_value: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct IntegrationSettingsEntry {
+    id: String,
+    name: String,
+    description: String,
+    category: crate::integrations::IntegrationCategory,
+    status: crate::integrations::IntegrationStatus,
+    configured: bool,
+    activates_default_provider: bool,
+    fields: Vec<IntegrationCredentialsField>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct IntegrationSettingsPayload {
+    revision: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    active_default_provider_integration_id: Option<String>,
+    integrations: Vec<IntegrationSettingsEntry>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DashboardAiIntegrationSpec {
+    id: &'static str,
+    integration_name: &'static str,
+    provider_id: &'static str,
+    requires_api_key: bool,
+    supports_api_url: bool,
+    model_options: &'static [&'static str],
+}
+
+const DASHBOARD_AI_INTEGRATION_SPECS: &[DashboardAiIntegrationSpec] = &[
+    DashboardAiIntegrationSpec {
+        id: "openrouter",
+        integration_name: "OpenRouter",
+        provider_id: "openrouter",
+        requires_api_key: true,
+        supports_api_url: false,
+        model_options: &[
+            "anthropic/claude-sonnet-4-6",
+            "openai/gpt-5.2",
+            "google/gemini-3.1-pro",
+        ],
+    },
+    DashboardAiIntegrationSpec {
+        id: "anthropic",
+        integration_name: "Anthropic",
+        provider_id: "anthropic",
+        requires_api_key: true,
+        supports_api_url: false,
+        model_options: &["claude-sonnet-4-6", "claude-opus-4-6"],
+    },
+    DashboardAiIntegrationSpec {
+        id: "openai",
+        integration_name: "OpenAI",
+        provider_id: "openai",
+        requires_api_key: true,
+        supports_api_url: false,
+        model_options: &["gpt-5.2", "gpt-5.2-codex", "gpt-4o"],
+    },
+    DashboardAiIntegrationSpec {
+        id: "google",
+        integration_name: "Google",
+        provider_id: "gemini",
+        requires_api_key: true,
+        supports_api_url: false,
+        model_options: &["google/gemini-3.1-pro", "google/gemini-3-flash"],
+    },
+    DashboardAiIntegrationSpec {
+        id: "deepseek",
+        integration_name: "DeepSeek",
+        provider_id: "deepseek",
+        requires_api_key: true,
+        supports_api_url: false,
+        model_options: &["deepseek/deepseek-reasoner", "deepseek/deepseek-chat"],
+    },
+    DashboardAiIntegrationSpec {
+        id: "xai",
+        integration_name: "xAI",
+        provider_id: "xai",
+        requires_api_key: true,
+        supports_api_url: false,
+        model_options: &["x-ai/grok-4", "x-ai/grok-3"],
+    },
+    DashboardAiIntegrationSpec {
+        id: "mistral",
+        integration_name: "Mistral",
+        provider_id: "mistral",
+        requires_api_key: true,
+        supports_api_url: false,
+        model_options: &["mistral-large-latest", "codestral-latest"],
+    },
+    DashboardAiIntegrationSpec {
+        id: "ollama",
+        integration_name: "Ollama",
+        provider_id: "ollama",
+        requires_api_key: false,
+        supports_api_url: true,
+        model_options: &["llama3.2", "qwen2.5-coder:7b", "phi4"],
+    },
+    DashboardAiIntegrationSpec {
+        id: "perplexity",
+        integration_name: "Perplexity",
+        provider_id: "perplexity",
+        requires_api_key: true,
+        supports_api_url: false,
+        model_options: &["sonar-pro", "sonar-reasoning-pro", "sonar"],
+    },
+    DashboardAiIntegrationSpec {
+        id: "venice",
+        integration_name: "Venice",
+        provider_id: "venice",
+        requires_api_key: true,
+        supports_api_url: false,
+        model_options: &["zai-org-glm-5", "venice-uncensored"],
+    },
+    DashboardAiIntegrationSpec {
+        id: "vercel",
+        integration_name: "Vercel AI",
+        provider_id: "vercel",
+        requires_api_key: true,
+        supports_api_url: false,
+        model_options: &[
+            "openai/gpt-5.2",
+            "anthropic/claude-sonnet-4-6",
+            "google/gemini-3.1-pro",
+        ],
+    },
+    DashboardAiIntegrationSpec {
+        id: "cloudflare",
+        integration_name: "Cloudflare AI",
+        provider_id: "cloudflare",
+        requires_api_key: true,
+        supports_api_url: false,
+        model_options: &[
+            "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+            "@cf/qwen/qwen3-32b",
+        ],
+    },
+];
+
+fn find_dashboard_spec(id: &str) -> Option<&'static DashboardAiIntegrationSpec> {
+    DASHBOARD_AI_INTEGRATION_SPECS
+        .iter()
+        .find(|spec| spec.id.eq_ignore_ascii_case(id))
+}
+
+fn provider_alias_matches(spec: &DashboardAiIntegrationSpec, provider: &str) -> bool {
+    let normalized = provider.trim().to_ascii_lowercase();
+    match spec.id {
+        "google" => matches!(normalized.as_str(), "google" | "google-gemini" | "gemini"),
+        "xai" => matches!(normalized.as_str(), "xai" | "grok"),
+        "vercel" => matches!(normalized.as_str(), "vercel" | "vercel-ai"),
+        "cloudflare" => matches!(normalized.as_str(), "cloudflare" | "cloudflare-ai"),
+        _ => normalized == spec.provider_id,
+    }
+}
+
+fn is_spec_active(config: &crate::config::Config, spec: &DashboardAiIntegrationSpec) -> bool {
+    config
+        .default_provider
+        .as_deref()
+        .is_some_and(|provider| provider_alias_matches(spec, provider))
+}
+
+fn has_non_empty(value: Option<&str>) -> bool {
+    value.is_some_and(|candidate| !candidate.trim().is_empty())
+}
+
+fn config_revision(config: &crate::config::Config) -> String {
+    let serialized = toml::to_string(config).unwrap_or_default();
+    let digest = Sha256::digest(serialized.as_bytes());
+    format!("{digest:x}")
+}
+
+fn active_dashboard_provider_id(config: &crate::config::Config) -> Option<String> {
+    DASHBOARD_AI_INTEGRATION_SPECS.iter().find_map(|spec| {
+        if is_spec_active(config, spec) {
+            Some(spec.id.to_string())
+        } else {
+            None
+        }
+    })
+}
+
+fn build_integration_settings_payload(
+    config: &crate::config::Config,
+) -> IntegrationSettingsPayload {
+    let all_integrations = crate::integrations::registry::all_integrations();
+    let mut entries = Vec::new();
+
+    for spec in DASHBOARD_AI_INTEGRATION_SPECS {
+        let Some(registry_entry) = all_integrations
+            .iter()
+            .find(|entry| entry.name == spec.integration_name)
+        else {
+            continue;
+        };
+
+        let status = (registry_entry.status_fn)(config);
+        let is_active_provider = is_spec_active(config, spec);
+        let has_key = has_non_empty(config.api_key.as_deref());
+        let has_model = is_active_provider && has_non_empty(config.default_model.as_deref());
+        let has_api_url = is_active_provider && has_non_empty(config.api_url.as_deref());
+
+        let mut fields = vec![
+            IntegrationCredentialsField {
+                key: "api_key".to_string(),
+                label: "API Key".to_string(),
+                required: spec.requires_api_key,
+                has_value: has_key,
+                input_type: "secret",
+                options: Vec::new(),
+                current_value: None,
+                masked_value: has_key.then(|| "••••••••".to_string()),
+            },
+            IntegrationCredentialsField {
+                key: "default_model".to_string(),
+                label: "Default Model".to_string(),
+                required: false,
+                has_value: has_model,
+                input_type: "select",
+                options: spec
+                    .model_options
+                    .iter()
+                    .map(|value| (*value).to_string())
+                    .collect(),
+                current_value: if is_active_provider {
+                    config
+                        .default_model
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                        .map(std::string::ToString::to_string)
+                } else {
+                    None
+                },
+                masked_value: None,
+            },
+        ];
+
+        if spec.supports_api_url {
+            fields.push(IntegrationCredentialsField {
+                key: "api_url".to_string(),
+                label: "Base URL".to_string(),
+                required: false,
+                has_value: has_api_url,
+                input_type: "text",
+                options: Vec::new(),
+                current_value: if is_active_provider {
+                    config
+                        .api_url
+                        .as_deref()
+                        .filter(|value| !value.trim().is_empty())
+                        .map(std::string::ToString::to_string)
+                } else {
+                    None
+                },
+                masked_value: None,
+            });
+        }
+
+        let configured = if spec.requires_api_key {
+            is_active_provider && has_key
+        } else {
+            is_active_provider
+        };
+
+        entries.push(IntegrationSettingsEntry {
+            id: spec.id.to_string(),
+            name: registry_entry.name.to_string(),
+            description: registry_entry.description.to_string(),
+            category: registry_entry.category,
+            status,
+            configured,
+            activates_default_provider: true,
+            fields,
+        });
+    }
+
+    IntegrationSettingsPayload {
+        revision: config_revision(config),
+        active_default_provider_integration_id: active_dashboard_provider_id(config),
+        integrations: entries,
+    }
+}
+
+fn apply_integration_credentials_update(
+    config: &crate::config::Config,
+    integration_id: &str,
+    fields: &BTreeMap<String, String>,
+) -> Result<crate::config::Config, String> {
+    let Some(spec) = find_dashboard_spec(integration_id) else {
+        return Err(format!("Unknown integration id: {integration_id}"));
+    };
+
+    let was_active_provider = is_spec_active(config, spec);
+    let mut updated = config.clone();
+
+    for (key, value) in fields {
+        let trimmed = value.trim();
+        match key.as_str() {
+            "api_key" => {
+                updated.api_key = if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                };
+            }
+            "default_model" => {
+                updated.default_model = if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                };
+            }
+            "api_url" => {
+                if !spec.supports_api_url {
+                    return Err(format!(
+                        "Integration '{}' does not support api_url",
+                        spec.integration_name
+                    ));
+                }
+                updated.api_url = if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                };
+            }
+            _ => {
+                return Err(format!(
+                    "Unsupported field '{key}' for integration '{integration_id}'"
+                ));
+            }
+        }
+    }
+
+    updated.default_provider = Some(spec.provider_id.to_string());
+    if !fields.contains_key("default_model") && !was_active_provider {
+        updated.default_model = Some(crate::config::resolve_default_model_id(
+            None,
+            Some(spec.provider_id),
+        ));
+    }
+
+    if !spec.supports_api_url && !was_active_provider {
+        updated.api_url = None;
+    } else if spec.supports_api_url && !fields.contains_key("api_url") && !was_active_provider {
+        updated.api_url = None;
+    }
+
+    updated
+        .validate()
+        .map_err(|err| format!("Invalid integration config update: {err}"))?;
+    Ok(updated)
 }
 
 // ── Handlers ────────────────────────────────────────────────────
@@ -334,6 +713,104 @@ pub async fn handle_api_integrations(
         .collect();
 
     Json(serde_json::json!({"integrations": integrations})).into_response()
+}
+
+/// GET /api/integrations/settings — dashboard credential schema + masked state
+pub async fn handle_api_integrations_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = require_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let config = state.config.lock().clone();
+    let payload = build_integration_settings_payload(&config);
+    Json(payload).into_response()
+}
+
+/// PUT /api/integrations/:id/credentials — update integration credentials/config
+pub async fn handle_api_integration_credentials_put(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<IntegrationCredentialsUpdateBody>,
+) -> impl IntoResponse {
+    if let Err(e) = require_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let current = state.config.lock().clone();
+    let current_revision = config_revision(&current);
+    if let Some(revision) = body.revision.as_deref() {
+        if revision != current_revision {
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({
+                    "error": "Integration settings are out of date. Refresh and retry.",
+                    "revision": current_revision,
+                })),
+            )
+                .into_response();
+        }
+    }
+
+    let updated = match apply_integration_credentials_update(&current, &id, &body.fields) {
+        Ok(config) => config,
+        Err(error) if error.starts_with("Unknown integration id:") => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": error })),
+            )
+                .into_response();
+        }
+        Err(error) if error.starts_with("Unsupported field") => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": error })),
+            )
+                .into_response();
+        }
+        Err(error) if error.starts_with("Invalid integration config update:") => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": error })),
+            )
+                .into_response();
+        }
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": error })),
+            )
+                .into_response();
+        }
+    };
+
+    let updated_revision = config_revision(&updated);
+    if updated_revision == current_revision {
+        return Json(serde_json::json!({
+            "status": "ok",
+            "revision": updated_revision,
+            "unchanged": true,
+        }))
+        .into_response();
+    }
+
+    if let Err(error) = updated.save().await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("Failed to save config: {error}")})),
+        )
+            .into_response();
+    }
+
+    *state.config.lock() = updated;
+    Json(serde_json::json!({
+        "status": "ok",
+        "revision": updated_revision,
+    }))
+    .into_response()
 }
 
 /// POST /api/doctor — run diagnostics
@@ -892,6 +1369,7 @@ mod tests {
     use crate::config::schema::{
         CloudflareTunnelConfig, LarkReceiveMode, NgrokTunnelConfig, WatiConfig,
     };
+    use std::collections::BTreeMap;
 
     #[test]
     fn masking_keeps_toml_valid_and_preserves_api_keys_type() {
@@ -1140,5 +1618,61 @@ mod tests {
             restored_feishu.verification_token.as_deref(),
             Some("feishu-verify-token")
         );
+    }
+
+    #[test]
+    fn integration_settings_payload_includes_openrouter_and_revision() {
+        let config = crate::config::Config::default();
+        let payload = build_integration_settings_payload(&config);
+
+        assert!(
+            !payload.revision.is_empty(),
+            "settings payload should include deterministic revision"
+        );
+        assert!(
+            payload
+                .integrations
+                .iter()
+                .any(|entry| entry.id == "openrouter" && entry.name == "OpenRouter"),
+            "dashboard settings payload should expose OpenRouter editor metadata"
+        );
+    }
+
+    #[test]
+    fn apply_integration_credentials_update_switches_provider_with_fallback_model() {
+        let mut config = crate::config::Config::default();
+        config.default_provider = Some("openrouter".to_string());
+        config.default_model = Some("anthropic/claude-sonnet-4-6".to_string());
+        config.api_url = Some("https://old.example.com".to_string());
+
+        let updated = apply_integration_credentials_update(&config, "ollama", &BTreeMap::new())
+            .expect("ollama update should succeed");
+
+        assert_eq!(updated.default_provider.as_deref(), Some("ollama"));
+        assert_eq!(updated.default_model.as_deref(), Some("llama3.2"));
+        assert!(
+            updated.api_url.is_none(),
+            "switching providers without api_url field should reset stale api_url"
+        );
+    }
+
+    #[test]
+    fn apply_integration_credentials_update_rejects_unknown_fields() {
+        let config = crate::config::Config::default();
+        let mut fields = BTreeMap::new();
+        fields.insert("unknown".to_string(), "value".to_string());
+
+        let err = apply_integration_credentials_update(&config, "openrouter", &fields)
+            .expect_err("unknown fields should fail validation");
+        assert!(err.contains("Unsupported field 'unknown'"));
+    }
+
+    #[test]
+    fn config_revision_changes_when_config_changes() {
+        let mut config = crate::config::Config::default();
+        let initial = config_revision(&config);
+        config.default_model = Some("gpt-5.2".to_string());
+        let changed = config_revision(&config);
+        assert_ne!(initial, changed);
     }
 }

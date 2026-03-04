@@ -60,6 +60,15 @@ export async function apiFetch<T = unknown>(
     return undefined as unknown as T;
   }
 
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+  if (!contentType.includes('application/json')) {
+    const text = await response.text().catch(() => '');
+    const preview = text.trim().slice(0, 120);
+    throw new Error(
+      `API ${response.status}: expected JSON response, got ${contentType || 'unknown content type'}${preview ? ` (${preview})` : ''}`,
+    );
+  }
+
   return response.json() as Promise<T>;
 }
 
