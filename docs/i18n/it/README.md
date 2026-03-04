@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="../../../zeroclaw.png" alt="ZeroClaw" width="200" />
+  <img src="../../../assets/zeroclaw.png" alt="ZeroClaw" width="200" />
 </p>
 
 <h1 align="center">ZeroClaw 🦀</h1>
@@ -15,17 +15,34 @@
   <a href="https://buymeacoffee.com/argenistherose"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-yellow.svg?style=flat&logo=buy-me-a-coffee" alt="Buy Me a Coffee" /></a>
   <a href="https://x.com/zeroclawlabs?s=21"><img src="https://img.shields.io/badge/X-%40zeroclawlabs-000000?style=flat&logo=x&logoColor=white" alt="X: @zeroclawlabs" /></a>
   <a href="https://zeroclawlabs.cn/group.jpg"><img src="https://img.shields.io/badge/WeChat-Group-B7D7A8?logo=wechat&logoColor=white" alt="Gruppo WeChat" /></a>
+  <a href="https://www.xiaohongshu.com/user/profile/67cbfc43000000000d008307?xsec_token=AB73VnYnGNx5y36EtnnZfGmAmS-6Wzv8WMuGpfwfkg6Yc%3D&xsec_source=pc_search"><img src="https://img.shields.io/badge/Xiaohongshu-Official-FF2442?style=flat" alt="Xiaohongshu: Official" /></a>
   <a href="https://t.me/zeroclawlabs"><img src="https://img.shields.io/badge/Telegram-%40zeroclawlabs-26A5E4?style=flat&logo=telegram&logoColor=white" alt="Telegram: @zeroclawlabs" /></a>
   <a href="https://www.facebook.com/groups/zeroclaw"><img src="https://img.shields.io/badge/Facebook-Group-1877F2?style=flat&logo=facebook&logoColor=white" alt="Gruppo Facebook" /></a>
   <a href="https://www.reddit.com/r/zeroclawlabs/"><img src="https://img.shields.io/badge/Reddit-r%2Fzeroclawlabs-FF4500?style=flat&logo=reddit&logoColor=white" alt="Reddit: r/zeroclawlabs" /></a>
 </p>
-
 <p align="center">
 Sviluppato da studenti e membri delle comunità Harvard, MIT e Sundai.Club.
 </p>
 
 <p align="center">
   🌐 <strong>Lingue:</strong> <a href="../../../README.md">English</a> · <a href="../zh-CN/README.md">简体中文</a> · <a href="../es/README.md">Español</a> · <a href="../pt/README.md">Português</a> · <a href="README.md">Italiano</a> · <a href="../ja/README.md">日本語</a> · <a href="../ru/README.md">Русский</a> · <a href="../fr/README.md">Français</a> · <a href="../vi/README.md">Tiếng Việt</a> · <a href="../el/README.md">Ελληνικά</a>
+</p>
+
+<p align="center">
+  <a href="#avvio-rapido">Avvio Rapido</a> |
+  <a href="../../../docs/one-click-bootstrap.md">Configurazione con Un Clic</a> |
+  <a href="../../../docs/README.md">Hub Docs</a> |
+  <a href="../../../docs/SUMMARY.md">TOC Docs</a>
+</p>
+
+<p align="center">
+  <strong>Rotte Rapide:</strong>
+  <a href="../../../docs/reference/README.md">Riferimento</a> ·
+  <a href="../../../docs/operations/README.md">Operazioni</a> ·
+  <a href="../../../docs/troubleshooting.md">Risoluzione Problemi</a> ·
+  <a href="../../../docs/security/README.md">Sicurezza</a> ·
+  <a href="../../../docs/hardware/README.md">Hardware</a> ·
+  <a href="../../../docs/contributing/README.md">Contribuire</a>
 </p>
 
 <p align="center">
@@ -38,6 +55,16 @@ Sviluppato da studenti e membri delle comunità Harvard, MIT e Sundai.Club.
 </p>
 
 <p align="center"><code>Architettura basata su trait · runtime sicuro per impostazione predefinita · provider/canale/strumento scambiabile · tutto collegabile</code></p>
+
+### 📢 Annunci
+
+Usa questa bacheca per avvisi importanti (cambiamenti disruptivi, avvisi di sicurezza, finestre di manutenzione e blocchi di release).
+
+| Data (UTC) | Livello      | Avviso                                                                                                                                                                                                                                                                                                                                                 | Azione                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ---------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-02-19 | _Critico_    | **Non siamo affiliati** con `openagen/zeroclaw`, `zeroclaw.org` o `zeroclaw.net`. I domini `zeroclaw.org` e `zeroclaw.net` attualmente puntano al fork `openagen/zeroclaw`, e quel dominio/repository stanno impersonando il nostro sito web/progetto ufficiale.                                                                                       | Non fidarti di informazioni, binari, raccolta fondi o annunci da quelle fonti. Usa solo [questo repository](https://github.com/zeroclaw-labs/zeroclaw) e i nostri account social verificati.                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 2026-02-21 | _Importante_ | Il nostro sito web ufficiale è ora disponibile: [zeroclawlabs.ai](https://zeroclawlabs.ai). Grazie per la pazienza mentre preparavamo il lancio. Stiamo ancora vedendo tentativi di impersonazione, quindi **non** unirti ad alcuna attività di investimento o raccolta fondi che rivendica il nome ZeroClaw a meno che non sia pubblicato attraverso i nostri canali ufficiali.                            | Usa [questo repository](https://github.com/zeroclaw-labs/zeroclaw) come unica fonte di verità. Segui [X (@zeroclawlabs)](https://x.com/zeroclawlabs?s=21), [Telegram (@zeroclawlabs)](https://t.me/zeroclawlabs), [Facebook (Gruppo)](https://www.facebook.com/groups/zeroclaw), [Reddit (r/zeroclawlabs)](https://www.reddit.com/r/zeroclawlabs/), e [Xiaohongshu](https://www.xiaohongshu.com/user/profile/67cbfc43000000000d008307?xsec_token=AB73VnYnGNx5y36EtnnZfGmAmS-6Wzv8WMuGpfwfkg6Yc%3D&xsec_source=pc_search) per aggiornamenti ufficiali. |
+| 2026-02-19 | _Importante_ | Anthropic ha aggiornato i termini di Autenticazione e Uso Credenziali il 2026-02-19. I token OAuth di Claude Code (Free, Pro, Max) sono destinati esclusivamente a Claude Code e Claude.ai; usare token OAuth da Claude Free/Pro/Max in qualsiasi altro prodotto, strumento o servizio (incluso Agent SDK) non è permesso e può violare i Termini di Servizio del Consumatore. | Per favore evita temporaneamente le integrazioni OAuth di Claude Code per prevenire potenziale perdita. Clausola originale: [Authentication and Credential Use](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use).                                                                                                                                                                                                                                                                                                                                                                                    |
 
 ### ✨ Caratteristiche
 
@@ -56,6 +83,12 @@ Sviluppato da studenti e membri delle comunità Harvard, MIT e Sundai.Club.
 
 ## Avvio Rapido
 
+### Opzione 0: Installatore a Una Riga (Onboarding TUI Predefinito)
+
+```bash
+curl -fsSL https://zeroclawlabs.ai/install.sh | bash
+```
+
 ### Opzione 1: Homebrew (macOS/Linuxbrew)
 
 ```bash
@@ -67,10 +100,10 @@ brew install zeroclaw
 ```bash
 git clone https://github.com/zeroclaw-labs/zeroclaw.git
 cd zeroclaw
-./bootstrap.sh
+./install.sh
 ```
 
-> **Nota:** Le build da sorgente richiedono ~2GB RAM e ~6GB disco. Per sistemi con risorse limitate, usa `./bootstrap.sh --prefer-prebuilt` per scaricare un binario precompilato.
+> **Nota:** Le build da sorgente richiedono ~2GB RAM e ~6GB disco. Per sistemi con risorse limitate, usa `./install.sh --prefer-prebuilt` per scaricare un binario precompilato.
 
 ### Opzione 3: Cargo Install
 
@@ -93,7 +126,37 @@ zeroclaw chat "Ciao!"
 
 Per opzioni di configurazione dettagliate, consulta [docs/one-click-bootstrap.md](../../../docs/one-click-bootstrap.md).
 
+### Documentazione di Installazione (Fonte Canonica)
+
+Usa i docs del repository come fonte di verità per le istruzioni di installazione/configurazione:
+
+- [Avvio Rapido README](#avvio-rapido)
+- [docs/one-click-bootstrap.md](../../../docs/one-click-bootstrap.md)
+- [docs/getting-started/README.md](../../../docs/getting-started/README.md)
+
+I commenti delle issue possono fornire contesto, ma non sono documentazione di installazione canonica.
+
+## Istantanea Benchmark (ZeroClaw vs OpenClaw, Riproducibile)
+
+Benchmark rapido su macchina locale (macOS arm64, Feb 2026) normalizzato per hardware edge a 0.8GHz.
+
+|                           | OpenClaw      | NanoBot        | PicoClaw        | ZeroClaw 🦀          |
+| ------------------------- | ------------- | -------------- | --------------- | -------------------- |
+| **Linguaggio**            | TypeScript    | Python         | Go              | **Rust**             |
+| **RAM**                   | > 1GB         | > 100MB        | < 10MB          | **< 5MB**            |
+| **Avvio (core 0.8GHz)**   | > 500s        | > 30s          | < 1s            | **< 10ms**           |
+| **Dimensione Binario**    | ~28MB (dist)  | N/A (Script)   | ~8MB            | **~8.8 MB**          |
+| **Costo**                 | Mac Mini $599 | Linux SBC ~$50 | Scheda Linux $10 | **Qualsiasi hardware** |
+
+> Note: I risultati di ZeroClaw sono misurati su build di release usando `/usr/bin/time -l`. OpenClaw richiede runtime Node.js (tipicamente ~390MB di overhead memoria aggiuntivo), mentre NanoBot richiede runtime Python. PicoClaw e ZeroClaw sono binari statici. Le cifre RAM sopra sono memoria di runtime; i requisiti di compilazione in fase di build sono maggiori.
+
+<p align="center">
+  <img src="../../../assets/zero-claw.png" alt="Confronto ZeroClaw vs OpenClaw" width="800" />
+</p>
+
 ---
+
+Per documentazione completa, consulta [`docs/README.md`](../../../docs/README.md) | [`docs/SUMMARY.md`](../../../docs/SUMMARY.md)
 
 ## ⚠️ Repository Ufficiale e Avviso di Impersonazione
 
@@ -101,7 +164,7 @@ Per opzioni di configurazione dettagliate, consulta [docs/one-click-bootstrap.md
 
 > https://github.com/zeroclaw-labs/zeroclaw
 
-Qualsiasi altro repository, organizzazione, dominio o pacchetto che affermi di essere "ZeroClaw" o implichi affiliazione con ZeroClaw Labs **non è autorizzato e non è affiliato con questo progetto**.
+Qualsiasi altro repository, organizzazione, dominio o pacchetto che affermi di essere "ZeroClaw" o implichi affiliazione con ZeroClaw Labs **non è autorizzato e non è affiliato con questo progetto**. I fork non autorizzati noti saranno elencati in [TRADEMARK.md](../../../TRADEMARK.md).
 
 Se incontri impersonazione o uso improprio del marchio, per favore [apri una issue](https://github.com/zeroclaw-labs/zeroclaw/issues).
 
@@ -126,16 +189,14 @@ Consulta [CONTRIBUTING.md](../../../CONTRIBUTING.md) e [CLA.md](../../../CLA.md)
 
 **ZeroClaw** — Zero overhead. Zero compromesso. Distribuisci ovunque. Scambia qualsiasi cosa. 🦀
 
----
-
-## Star History
+## Storico Stars
 
 <p align="center">
   <a href="https://www.star-history.com/#zeroclaw-labs/zeroclaw&type=date&legend=top-left">
     <picture>
      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=zeroclaw-labs/zeroclaw&type=date&theme=dark&legend=top-left" />
      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=zeroclaw-labs/zeroclaw&type=date&legend=top-left" />
-     <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=zeroclaw-labs/zeroclaw&type=date&legend=top-left" />
+     <img alt="Grafico Storico Stars" src="https://api.star-history.com/svg?repos=zeroclaw-labs/zeroclaw&type=date&legend=top-left" />
     </picture>
   </a>
 </p>
