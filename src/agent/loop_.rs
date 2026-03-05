@@ -67,7 +67,7 @@ static SENSITIVE_KEY_PATTERNS: LazyLock<RegexSet> = LazyLock::new(|| {
 });
 
 static SENSITIVE_KV_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?i)(token|api[_-]?key|password|secret|user[_-]?key|bearer|credential)["']?\s*[:=]\s*(?:"([^"]{8,})"|'([^']{8,})'|([a-zA-Z0-9_\-\.]{8,}))"#).unwrap()
+    Regex::new(r#"(?i)(token|api[_-]?key|password|secret|user[_-]?key|bearer|credential)(["']?\s*[:=]\s*)(?:"([^"]{8,})"|'([^']{8,})'|([a-zA-Z0-9_\-\.]{8,}))"#).unwrap()
 });
 
 /// Scrub credentials from tool output to prevent accidental exfiltration.
@@ -76,33 +76,26 @@ static SENSITIVE_KV_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 pub(crate) fn scrub_credentials(input: &str) -> String {
     SENSITIVE_KV_REGEX
         .replace_all(input, |caps: &regex::Captures| {
-            let full_match = &caps[0];
             let key = &caps[1];
+            let delimiter = caps.get(2).map(|m| m.as_str()).unwrap_or(": ");
             let val = caps
-                .get(2)
-                .or(caps.get(3))
+                .get(3)
                 .or(caps.get(4))
+                .or(caps.get(5))
                 .map(|m| m.as_str())
                 .unwrap_or("");
+            let quote = if caps.get(3).is_some() {
+                "\""
+            } else if caps.get(4).is_some() {
+                "'"
+            } else {
+                ""
+            };
 
-            // Preserve first 4 chars for context, then redact
+            // Preserve first 4 chars for context, then redact.
             let prefix = if val.len() > 4 { &val[..4] } else { "" };
 
-            if full_match.contains(':') {
-                if full_match.contains('"') {
-                    format!("\"{}\": \"{}*[REDACTED]\"", key, prefix)
-                } else {
-                    format!("{}: {}*[REDACTED]", key, prefix)
-                }
-            } else if full_match.contains('=') {
-                if full_match.contains('"') {
-                    format!("{}=\"{}*[REDACTED]\"", key, prefix)
-                } else {
-                    format!("{}={}*[REDACTED]", key, prefix)
-                }
-            } else {
-                format!("{}: {}*[REDACTED]", key, prefix)
-            }
+            format!("{key}{delimiter}{quote}{prefix}*[REDACTED]{quote}")
         })
         .to_string()
 }
@@ -2322,6 +2315,14 @@ mod tests {
         let scrubbed = scrub_credentials(input);
         assert!(scrubbed.contains("\"api_key\": \"sk-1*[REDACTED]\""));
         assert!(scrubbed.contains("public"));
+    }
+
+    #[test]
+    fn test_scrub_credentials_toml_value_with_colon_preserves_equals_delimiter() {
+        let input = r#"api_key = "enc2:QmFzZTY0VG9rZW4=""#;
+        let scrubbed = scrub_credentials(input);
+        assert!(scrubbed.contains(r#"api_key = "enc2*[REDACTED]""#));
+        assert!(!scrubbed.contains(r#""api_key":"#));
     }
 
     #[test]
