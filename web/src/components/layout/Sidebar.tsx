@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
+  PanelsTopLeft,
   MessageSquare,
   Wrench,
   Clock,
@@ -15,6 +16,7 @@ import { t } from '@/lib/i18n';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, labelKey: 'nav.dashboard' },
+  { to: '/canvas', icon: PanelsTopLeft, labelKey: 'nav.canvas' },
   { to: '/agent', icon: MessageSquare, labelKey: 'nav.agent' },
   { to: '/tools', icon: Wrench, labelKey: 'nav.tools' },
   { to: '/cron', icon: Clock, labelKey: 'nav.cron' },

@@ -642,7 +642,13 @@ pub fn all_integrations() -> Vec<IntegrationEntry> {
             name: "Canvas",
             description: "Visual workspace + A2UI",
             category: IntegrationCategory::ToolsAutomation,
-            status_fn: |_| IntegrationStatus::ComingSoon,
+            status_fn: |c| {
+                if c.gateway.port == 0 {
+                    IntegrationStatus::ComingSoon
+                } else {
+                    IntegrationStatus::Available
+                }
+            },
         },
         // ── Media & Creative ────────────────────────────────────
         IntegrationEntry {
@@ -890,6 +896,17 @@ mod tests {
         let wa = entries.iter().find(|e| e.name == "WhatsApp").unwrap();
         assert!(matches!(
             (wa.status_fn)(&config),
+            IntegrationStatus::Available
+        ));
+    }
+
+    #[test]
+    fn canvas_available_when_gateway_is_configured() {
+        let config = Config::default();
+        let entries = all_integrations();
+        let canvas = entries.iter().find(|e| e.name == "Canvas").unwrap();
+        assert!(matches!(
+            (canvas.status_fn)(&config),
             IntegrationStatus::Available
         ));
     }

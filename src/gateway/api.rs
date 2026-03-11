@@ -102,6 +102,30 @@ pub async fn handle_api_status(
     Json(body).into_response()
 }
 
+/// GET /api/canvas — aggregated live workspace snapshot for the visual canvas
+pub async fn handle_api_canvas(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = require_auth(&state, &headers) {
+        return e.into_response();
+    }
+
+    let config = state.config.lock().clone();
+    let health = crate::health::snapshot();
+    let snapshot = crate::canvas_host::build_snapshot(
+        &config,
+        &state.model,
+        state.temperature,
+        state.mem.name(),
+        state.pairing.is_paired(),
+        state.tools_registry.len(),
+        health,
+    );
+
+    Json(snapshot).into_response()
+}
+
 /// GET /api/config — current config (api_key masked)
 pub async fn handle_api_config_get(
     State(state): State<AppState>,

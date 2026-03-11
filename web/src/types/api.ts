@@ -18,6 +18,46 @@ export interface HealthSnapshot {
   components: Record<string, ComponentHealth>;
 }
 
+export interface CanvasSnapshot {
+  title: string;
+  subtitle: string;
+  workspace_dir: string;
+  gateway: CanvasGateway;
+  lanes: CanvasLane[];
+  integrations: CanvasIntegrationSummary;
+  tools: CanvasToolSummary;
+  health: HealthSnapshot;
+}
+
+export interface CanvasGateway {
+  host: string;
+  port: number;
+  paired: boolean;
+}
+
+export interface CanvasLane {
+  id: string;
+  label: string;
+  nodes: CanvasNode[];
+}
+
+export interface CanvasNode {
+  id: string;
+  title: string;
+  detail: string;
+  status: string;
+}
+
+export interface CanvasIntegrationSummary {
+  active: number;
+  available: number;
+  coming_soon: number;
+}
+
+export interface CanvasToolSummary {
+  total: number;
+}
+
 export interface ComponentHealth {
   status: string;
   updated_at: string;

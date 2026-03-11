@@ -48,6 +48,7 @@ fn parse_temperature(s: &str) -> std::result::Result<f64, String> {
 mod agent;
 mod approval;
 mod auth;
+mod canvas_host;
 mod channels;
 mod rag {
     pub use zeroclaw::rag::*;

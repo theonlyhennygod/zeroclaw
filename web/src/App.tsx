@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect, createContext, useContext } from 'react';
 import Layout from './components/layout/Layout';
 import Dashboard from './pages/Dashboard';
+import Canvas from './pages/Canvas';
 import AgentChat from './pages/AgentChat';
 import Tools from './pages/Tools';
 import Cron from './pages/Cron';
@@ -114,6 +115,7 @@ function AppContent() {
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/canvas" element={<Canvas />} />
           <Route path="/agent" element={<AgentChat />} />
           <Route path="/tools" element={<Tools />} />
           <Route path="/cron" element={<Cron />} />

@@ -41,6 +41,7 @@ use serde::{Deserialize, Serialize};
 pub mod agent;
 pub(crate) mod approval;
 pub(crate) mod auth;
+pub mod canvas_host;
 pub mod channels;
 pub mod config;
 pub(crate) mod cost;

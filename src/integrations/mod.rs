@@ -155,6 +155,12 @@ fn show_integration_info(config: &Config, name: &str) -> Result<()> {
             println!("    Schedule tasks in ~/.zeroclaw/workspace/cron/");
             println!("    Run: zeroclaw cron list");
         }
+        "Canvas" => {
+            println!("  Built-in:");
+            println!("    Launch the gateway and open the embedded dashboard.");
+            println!("    Visit the Canvas page for a live visual workspace.");
+            println!("    API surface: GET /api/canvas, live events: GET /api/events");
+        }
         "Webhooks" => {
             println!("  Built-in:");
             println!("    HTTP endpoint for external triggers.");

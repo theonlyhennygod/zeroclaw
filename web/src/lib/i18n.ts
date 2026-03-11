@@ -11,6 +11,7 @@ const translations: Record<Locale, Record<string, string>> = {
   en: {
     // Navigation
     'nav.dashboard': 'Dashboard',
+    'nav.canvas': 'Canvas',
     'nav.agent': 'Agent',
     'nav.tools': 'Tools',
     'nav.cron': 'Scheduled Jobs',
@@ -194,6 +195,7 @@ const translations: Record<Locale, Record<string, string>> = {
   tr: {
     // Navigation
     'nav.dashboard': 'Kontrol Paneli',
+    'nav.canvas': 'Tuval',
     'nav.agent': 'Ajan',
     'nav.tools': 'Araclar',
     'nav.cron': 'Zamanlanmis Gorevler',

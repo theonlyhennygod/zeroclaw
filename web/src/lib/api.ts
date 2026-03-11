@@ -8,6 +8,7 @@ import type {
   CostSummary,
   CliTool,
   HealthSnapshot,
+  CanvasSnapshot,
 } from '../types/api';
 import { clearToken, getToken, setToken } from './auth';
 
@@ -110,6 +111,10 @@ export async function getPublicHealth(): Promise<{ require_pairing: boolean; pai
 
 export function getStatus(): Promise<StatusResponse> {
   return apiFetch<StatusResponse>('/api/status');
+}
+
+export function getCanvas(): Promise<CanvasSnapshot> {
+  return apiFetch<CanvasSnapshot>('/api/canvas');
 }
 
 export function getHealth(): Promise<HealthSnapshot> {
