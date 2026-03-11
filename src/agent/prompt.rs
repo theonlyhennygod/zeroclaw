@@ -1,6 +1,7 @@
 use crate::config::IdentityConfig;
 use crate::identity;
 use crate::skills::Skill;
+use crate::tools::DeferredToolStub;
 use crate::tools::Tool;
 use anyhow::Result;
 use chrono::Local;
@@ -123,7 +124,7 @@ impl PromptSection for ToolsSection {
 
     fn build(&self, ctx: &PromptContext<'_>) -> Result<String> {
         let mut out = String::from("## Tools\n\n");
-        for tool in ctx.tools {
+        for tool in ctx.tools.iter().filter(|tool| tool.is_advertised()) {
             let _ = writeln!(
                 out,
                 "- **{}**: {}\n  Parameters: `{}`",
@@ -221,6 +222,22 @@ impl PromptSection for ChannelMediaSection {
             - `[Document: <name>] <path>` — A file attachment saved to the workspace."
             .into())
     }
+}
+
+pub fn build_deferred_tools_section(stubs: &[DeferredToolStub]) -> String {
+    if stubs.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::from("\n<available-deferred-tools>\n");
+    for stub in stubs {
+        let _ = writeln!(out, "- {}: {}", stub.name, stub.description);
+    }
+    out.push_str("</available-deferred-tools>\n\n");
+    out.push_str(
+        "Use `tool_search` to discover full schemas for deferred tools. Keyword queries list candidates; `select:name1,name2` activates exact tools for the next turn.\n",
+    );
+    out
 }
 
 fn inject_workspace_file(prompt: &mut String, workspace_dir: &Path, filename: &str) {

@@ -471,6 +471,20 @@ Notes:
 - Use exact domain or subdomain matching (e.g. `"api.example.com"`, `"example.com"`), or `"*"` to allow any public domain.
 - Local/private targets are still blocked even when `"*"` is configured.
 
+## `[mcp]`
+
+| Key | Default | Purpose |
+|---|---|---|
+| `deferred_loading` | `true` | Advertise deferred MCP-style tools through `tool_search` instead of eagerly exposing full schemas on the first turn |
+| `auto_activate` | `true` | Automatically activate an exact or unambiguous `tool_search` match |
+
+Notes:
+
+- `deferred_loading = true` keeps deferred tools out of the initial runtime tool schema payload and lists them in the prompt under `<available-deferred-tools>`.
+- When deferred tools are present, use `tool_search` with a keyword query to inspect candidates, then `tool_search` with `select:<tool_name>` to activate exact tools for the next turn.
+- `auto_activate = true` lets `tool_search` promote an exact or single strong match without requiring a second `select:` round-trip.
+- `deferred_loading = false` preserves eager tool exposure for integrations that prefer the legacy behavior.
+
 ## `[gateway]`
 
 | Key | Default | Purpose |

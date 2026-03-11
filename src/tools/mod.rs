@@ -29,6 +29,7 @@ pub mod cron_remove;
 pub mod cron_run;
 pub mod cron_runs;
 pub mod cron_update;
+pub mod deferred_activation;
 pub mod delegate;
 pub mod delegate_coordination_status;
 pub mod discord_history_fetch;
@@ -79,6 +80,7 @@ pub use cron_remove::CronRemoveTool;
 pub use cron_run::CronRunTool;
 pub use cron_runs::CronRunsTool;
 pub use cron_update::CronUpdateTool;
+pub use deferred_activation::{DeferredToolContext, DeferredToolStub};
 pub use delegate::DelegateTool;
 pub use delegate_coordination_status::DelegateCoordinationStatusTool;
 pub use discord_history_fetch::DiscordHistoryFetchTool;
@@ -156,10 +158,68 @@ impl Tool for ArcDelegatingTool {
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         self.inner.execute(args).await
     }
+
+    fn is_advertised(&self) -> bool {
+        self.inner.is_advertised()
+    }
 }
 
 fn boxed_registry_from_arcs(tools: Vec<Arc<dyn Tool>>) -> Vec<Box<dyn Tool>> {
     tools.into_iter().map(ArcDelegatingTool::boxed).collect()
+}
+
+fn should_defer_tool_by_default(name: &str) -> bool {
+    matches!(
+        name,
+        "agents_inbox"
+            | "agents_list"
+            | "agents_send"
+            | "browser"
+            | "browser_open"
+            | "composio"
+            | "delegate"
+            | "delegate_coordination_status"
+            | "discord_history_fetch"
+            | "http_request"
+            | "pdf_read"
+            | "screenshot"
+            | "state_get"
+            | "state_set"
+            | "subagent_list"
+            | "subagent_manage"
+            | "subagent_spawn"
+            | "web_fetch"
+            | "web_search_tool"
+    )
+}
+
+fn split_deferred_tools(
+    tool_arcs: Vec<Arc<dyn Tool>>,
+    use_deferred_loading: bool,
+) -> (Vec<Arc<dyn Tool>>, Option<Arc<DeferredToolContext>>) {
+    if !use_deferred_loading {
+        return (tool_arcs, None);
+    }
+
+    let mut primary_tools = Vec::new();
+    let mut deferred_tools = Vec::new();
+
+    for tool in tool_arcs {
+        if should_defer_tool_by_default(tool.name()) {
+            deferred_tools.push(tool);
+        } else {
+            primary_tools.push(tool);
+        }
+    }
+
+    if deferred_tools.is_empty() {
+        (primary_tools, None)
+    } else {
+        (
+            primary_tools,
+            Some(Arc::new(DeferredToolContext::from_tools(deferred_tools))),
+        )
+    }
 }
 
 /// Create the default tool registry
@@ -244,6 +304,41 @@ pub fn all_tools_with_runtime(
     fallback_api_key: Option<&str>,
     root_config: &crate::config::Config,
 ) -> Vec<Box<dyn Tool>> {
+    all_tools_with_runtime_and_deferred(
+        config,
+        security,
+        runtime,
+        memory,
+        composio_key,
+        composio_entity_id,
+        browser_config,
+        http_config,
+        web_fetch_config,
+        workspace_dir,
+        agents,
+        fallback_api_key,
+        root_config,
+    )
+    .0
+}
+
+/// Create full tool registry plus optional deferred-tool context.
+#[allow(clippy::implicit_hasher, clippy::too_many_arguments)]
+pub fn all_tools_with_runtime_and_deferred(
+    config: Arc<Config>,
+    security: &Arc<SecurityPolicy>,
+    runtime: Arc<dyn RuntimeAdapter>,
+    memory: Arc<dyn Memory>,
+    composio_key: Option<&str>,
+    composio_entity_id: Option<&str>,
+    browser_config: &crate::config::BrowserConfig,
+    http_config: &crate::config::HttpRequestConfig,
+    web_fetch_config: &crate::config::WebFetchConfig,
+    workspace_dir: &std::path::Path,
+    agents: &HashMap<String, DelegateAgentConfig>,
+    fallback_api_key: Option<&str>,
+    root_config: &crate::config::Config,
+) -> (Vec<Box<dyn Tool>>, Option<Arc<DeferredToolContext>>) {
     let has_shell_access = runtime.has_shell_access();
     let has_filesystem_access = runtime.has_filesystem_access();
     let zeroclaw_dir = root_config
@@ -536,7 +631,10 @@ pub fn all_tools_with_runtime(
         }
     }
 
-    boxed_registry_from_arcs(tool_arcs)
+    let (tool_arcs, deferred_context) =
+        split_deferred_tools(tool_arcs, root_config.mcp.deferred_loading);
+
+    (boxed_registry_from_arcs(tool_arcs), deferred_context)
 }
 
 #[cfg(test)]
@@ -987,5 +1085,57 @@ mod tests {
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(names.contains(&"delegate"));
         assert!(!names.contains(&"delegate_coordination_status"));
+    }
+
+    #[test]
+    fn all_tools_with_runtime_and_deferred_extracts_deferred_browser_tools() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig {
+            enabled: true,
+            allowed_domains: vec!["example.com".into()],
+            session_name: Some("deferred-test".into()),
+            ..BrowserConfig::default()
+        };
+        let http = crate::config::HttpRequestConfig::default();
+        let mut cfg = test_config(&tmp);
+        cfg.mcp.deferred_loading = true;
+
+        let (tools, deferred_context) = all_tools_with_runtime_and_deferred(
+            Arc::new(cfg.clone()),
+            &security,
+            Arc::new(NativeRuntime::new()),
+            mem,
+            None,
+            None,
+            &browser,
+            &http,
+            &crate::config::WebFetchConfig::default(),
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+
+        assert!(
+            tools.iter().all(|tool| tool.name() != "browser"),
+            "deferred browser tool should not stay in the eager registry"
+        );
+        let deferred_context = deferred_context.expect("deferred context should exist");
+        assert!(deferred_context.is_deferred_tool("browser"));
+        assert!(
+            deferred_context
+                .extra_tools()
+                .iter()
+                .any(|tool| tool.name() == "tool_search"),
+            "tool_search should be injected when deferred tools exist"
+        );
     }
 }

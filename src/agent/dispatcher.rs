@@ -93,7 +93,11 @@ impl XmlToolDispatcher {
     }
 
     pub fn tool_specs(tools: &[Box<dyn Tool>]) -> Vec<ToolSpec> {
-        tools.iter().map(|tool| tool.spec()).collect()
+        tools
+            .iter()
+            .filter(|tool| tool.is_advertised())
+            .map(|tool| tool.spec())
+            .collect()
     }
 }
 
@@ -126,7 +130,7 @@ impl ToolDispatcher for XmlToolDispatcher {
         );
         instructions.push_str("### Available Tools\n\n");
 
-        for tool in tools {
+        for tool in tools.iter().filter(|tool| tool.is_advertised()) {
             let _ = writeln!(
                 instructions,
                 "- **{}**: {}\n  Parameters: `{}`",

@@ -2,18 +2,34 @@ use super::parsing::ParsedToolCall;
 use super::{scrub_credentials, ToolLoopCancelled};
 use crate::approval::ApprovalManager;
 use crate::observability::{Observer, ObserverEvent};
-use crate::tools::Tool;
+use crate::tools::{DeferredToolStub, Tool};
 use anyhow::Result;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
-fn find_tool<'a>(tools: &'a [Box<dyn Tool>], name: &str) -> Option<&'a dyn Tool> {
-    tools.iter().find(|t| t.name() == name).map(|t| t.as_ref())
+fn find_tool<'a>(
+    tools: &'a [Box<dyn Tool>],
+    extra_tools: &'a [Arc<dyn Tool>],
+    name: &str,
+) -> Option<&'a dyn Tool> {
+    tools
+        .iter()
+        .find(|tool| tool.name() == name)
+        .map(|tool| tool.as_ref())
+        .or_else(|| {
+            extra_tools
+                .iter()
+                .find(|tool| tool.name() == name)
+                .map(|tool| tool.as_ref())
+        })
 }
 async fn execute_one_tool(
     call_name: &str,
     call_arguments: serde_json::Value,
     tools_registry: &[Box<dyn Tool>],
+    extra_tools: &[Arc<dyn Tool>],
+    deferred_tools: &[DeferredToolStub],
     observer: &dyn Observer,
     cancellation_token: Option<&CancellationToken>,
 ) -> Result<ToolExecutionOutcome> {
@@ -22,8 +38,17 @@ async fn execute_one_tool(
     });
     let start = Instant::now();
 
-    let Some(tool) = find_tool(tools_registry, call_name) else {
-        let reason = format!("Unknown tool: {call_name}");
+    let Some(tool) = find_tool(tools_registry, extra_tools, call_name) else {
+        let reason = if deferred_tools
+            .iter()
+            .any(|tool| tool.name.eq_ignore_ascii_case(call_name))
+        {
+            format!(
+                "Tool '{call_name}' is available for deferred activation. Call `tool_search` with `select:{call_name}` first so the full schema is activated for the next turn."
+            )
+        } else {
+            format!("Unknown tool: {call_name}")
+        };
         let duration = start.elapsed();
         observer.record_event(&ObserverEvent::ToolCall {
             tool: call_name.to_string(),
@@ -120,6 +145,8 @@ pub(super) fn should_execute_tools_in_parallel(
 pub(super) async fn execute_tools_parallel(
     tool_calls: &[ParsedToolCall],
     tools_registry: &[Box<dyn Tool>],
+    extra_tools: &[Arc<dyn Tool>],
+    deferred_tools: &[DeferredToolStub],
     observer: &dyn Observer,
     cancellation_token: Option<&CancellationToken>,
 ) -> Result<Vec<ToolExecutionOutcome>> {
@@ -130,6 +157,8 @@ pub(super) async fn execute_tools_parallel(
                 &call.name,
                 call.arguments.clone(),
                 tools_registry,
+                extra_tools,
+                deferred_tools,
                 observer,
                 cancellation_token,
             )
@@ -143,6 +172,8 @@ pub(super) async fn execute_tools_parallel(
 pub(super) async fn execute_tools_sequential(
     tool_calls: &[ParsedToolCall],
     tools_registry: &[Box<dyn Tool>],
+    extra_tools: &[Arc<dyn Tool>],
+    deferred_tools: &[DeferredToolStub],
     observer: &dyn Observer,
     cancellation_token: Option<&CancellationToken>,
 ) -> Result<Vec<ToolExecutionOutcome>> {
@@ -154,6 +185,8 @@ pub(super) async fn execute_tools_sequential(
                 &call.name,
                 call.arguments.clone(),
                 tools_registry,
+                extra_tools,
+                deferred_tools,
                 observer,
                 cancellation_token,
             )

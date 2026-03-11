@@ -412,8 +412,13 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         config.api_key.as_deref(),
         &config,
     ));
-    let tools_registry: Arc<Vec<ToolSpec>> =
-        Arc::new(tools_registry_exec.iter().map(|t| t.spec()).collect());
+    let tools_registry: Arc<Vec<ToolSpec>> = Arc::new(
+        tools_registry_exec
+            .iter()
+            .filter(|tool| tool.is_advertised())
+            .map(|t| t.spec())
+            .collect(),
+    );
     let max_tool_iterations = config.agent.max_tool_iterations;
     let multimodal_config = config.multimodal.clone();
 

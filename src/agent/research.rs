@@ -107,6 +107,7 @@ pub async fn run_research_phase(
     // Build tool specs for native OR prompt-guided tool calling
     let tool_specs: Vec<ToolSpec> = tools
         .iter()
+        .filter(|tool| tool.is_advertised())
         .map(|t| ToolSpec {
             name: t.name().to_string(),
             description: t.description().to_string(),

@@ -232,6 +232,7 @@ fn config_minimal_toml_with_temperature_uses_defaults() {
     let toml_str = "default_temperature = 0.7\n";
     let parsed: Config = toml::from_str(toml_str).expect("minimal TOML should parse");
     assert_eq!(parsed.agent.max_tool_iterations, 20);
+    assert!(parsed.mcp.deferred_loading);
     assert_eq!(parsed.gateway.port, 42617);
 }
 
@@ -241,6 +242,23 @@ fn config_only_temperature_parses() {
     let parsed: Config = toml::from_str(toml_str).expect("temperature-only TOML should parse");
     assert!((parsed.default_temperature - 1.2).abs() < f64::EPSILON);
     assert_eq!(parsed.agent.max_tool_iterations, 20);
+    assert!(parsed.mcp.deferred_loading);
+}
+
+#[test]
+fn config_mcp_section_parses() {
+    let toml_str = r#"
+default_temperature = 0.7
+
+[agent]
+max_tool_iterations = 8
+
+[mcp]
+deferred_loading = false
+"#;
+    let parsed: Config = toml::from_str(toml_str).expect("[mcp] section should parse");
+    assert!(!parsed.mcp.deferred_loading);
+    assert_eq!(parsed.agent.max_tool_iterations, 8);
 }
 
 #[test]

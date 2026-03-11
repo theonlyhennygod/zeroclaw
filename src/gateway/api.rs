@@ -578,9 +578,11 @@ pub async fn handle_api_tools(
     }
 
     let tools: Vec<serde_json::Value> = state
-        .tools_registry
+        .tools_registry_exec
         .iter()
-        .map(|spec| {
+        .filter(|tool| tool.is_advertised())
+        .map(|tool| {
+            let spec = tool.spec();
             serde_json::json!({
                 "name": spec.name,
                 "description": spec.description,

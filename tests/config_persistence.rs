@@ -8,7 +8,7 @@
 //! and config file round-trips to verify workspace discovery and persistence.
 
 use std::fs;
-use zeroclaw::config::{AgentConfig, Config, MemoryConfig};
+use zeroclaw::config::{AgentConfig, Config, McpConfig, MemoryConfig};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config default construction
@@ -78,6 +78,15 @@ fn agent_config_default_compact_context_off() {
     assert!(
         !agent.compact_context,
         "compact_context should default to false"
+    );
+}
+
+#[test]
+fn mcp_config_default_enables_deferred_loading() {
+    let mcp = McpConfig::default();
+    assert!(
+        mcp.deferred_loading,
+        "deferred MCP loading should default to on"
     );
 }
 

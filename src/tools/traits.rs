@@ -32,6 +32,14 @@ pub trait Tool: Send + Sync {
     /// Execute the tool with given arguments
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult>;
 
+    /// Whether this tool should be advertised to the model for new turns.
+    ///
+    /// Deferred tools may remain executable in the runtime while staying hidden
+    /// from the prompt / native tool payload until explicitly activated.
+    fn is_advertised(&self) -> bool {
+        true
+    }
+
     /// Get the full spec for LLM registration
     fn spec(&self) -> ToolSpec {
         ToolSpec {

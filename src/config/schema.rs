@@ -204,6 +204,10 @@ pub struct Config {
     #[serde(default)]
     pub composio: ComposioConfig,
 
+    /// MCP deferred-tool loading configuration (`[mcp]`).
+    #[serde(default)]
+    pub mcp: McpConfig,
+
     /// Secrets encryption configuration (`[secrets]`).
     #[serde(default)]
     pub secrets: SecretsConfig,
@@ -1173,6 +1177,22 @@ impl Default for ComposioConfig {
             enabled: false,
             api_key: None,
             entity_id: default_entity_id(),
+        }
+    }
+}
+
+/// MCP deferred-tool loading configuration (`[mcp]` section).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct McpConfig {
+    /// Advertise MCP-backed tools through `tool_search` and activate them on demand.
+    #[serde(default = "default_true", alias = "defer")]
+    pub deferred_loading: bool,
+}
+
+impl Default for McpConfig {
+    fn default() -> Self {
+        Self {
+            deferred_loading: true,
         }
     }
 }
@@ -4836,6 +4856,7 @@ impl Default for Config {
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
+            mcp: McpConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),
@@ -7324,6 +7345,7 @@ default_temperature = 0.7
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
+            mcp: McpConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),
@@ -7640,6 +7662,21 @@ tool_dispatcher = "xml"
         assert_eq!(parsed.agent.tool_dispatcher, "xml");
     }
 
+    #[test]
+    async fn mcp_config_defaults_and_deserializes() {
+        let cfg = McpConfig::default();
+        assert!(cfg.deferred_loading);
+
+        let raw = r#"
+default_temperature = 0.7
+
+[mcp]
+deferred_loading = false
+"#;
+        let parsed: Config = toml::from_str(raw).unwrap();
+        assert!(!parsed.mcp.deferred_loading);
+    }
+
     #[tokio::test]
     async fn sync_directory_handles_existing_directory() {
         let dir = std::env::temp_dir().join(format!(
@@ -7693,6 +7730,7 @@ tool_dispatcher = "xml"
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
+            mcp: McpConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),

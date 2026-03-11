@@ -9,7 +9,7 @@ use crate::providers::{
 };
 use crate::runtime;
 use crate::security::SecurityPolicy;
-use crate::tools::{self, Tool};
+use crate::tools::{self, DeferredToolContext, DeferredToolStub, Tool};
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
 use futures_util::StreamExt;
@@ -17,6 +17,7 @@ use regex::{Regex, RegexSet};
 use rustyline::error::ReadlineError;
 use std::collections::{BTreeSet, HashSet};
 use std::fmt::Write;
+use std::future::Future;
 use std::io::Write as _;
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
@@ -124,6 +125,10 @@ tokio::task_local! {
     static TOOL_LOOP_REPLY_TARGET: Option<String>;
 }
 
+tokio::task_local! {
+    static TOOL_LOOP_DEFERRED_TOOL_CONTEXT: Option<Arc<DeferredToolContext>>;
+}
+
 const AUTO_CRON_DELIVERY_CHANNELS: &[&str] = &["telegram", "discord", "slack", "mattermost"];
 
 const NON_CLI_APPROVAL_WAIT_TIMEOUT_SECS: u64 = 300;
@@ -200,6 +205,23 @@ pub(crate) struct NonCliApprovalContext {
 
 tokio::task_local! {
     static TOOL_LOOP_NON_CLI_APPROVAL_CONTEXT: Option<NonCliApprovalContext>;
+}
+
+pub(crate) async fn with_deferred_tool_context<F>(
+    context: Option<Arc<DeferredToolContext>>,
+    future: F,
+) -> F::Output
+where
+    F: Future,
+{
+    TOOL_LOOP_DEFERRED_TOOL_CONTEXT.scope(context, future).await
+}
+
+pub(crate) fn current_deferred_tool_context() -> Option<Arc<DeferredToolContext>> {
+    TOOL_LOOP_DEFERRED_TOOL_CONTEXT
+        .try_with(Clone::clone)
+        .ok()
+        .flatten()
 }
 
 /// Extract a short hint from tool call arguments for progress display.
@@ -328,17 +350,72 @@ async fn await_non_cli_approval_decision(
     }
 }
 
-/// Convert a tool registry to OpenAI function-calling format for native tool support.
-fn tools_to_openai_format(tools_registry: &[Box<dyn Tool>]) -> Vec<serde_json::Value> {
-    tools_registry
+fn current_runtime_extra_tools(
+    excluded_tools: &[String],
+) -> (Vec<Arc<dyn Tool>>, Vec<DeferredToolStub>) {
+    let Some(context) = current_deferred_tool_context() else {
+        return (Vec::new(), Vec::new());
+    };
+
+    let extra_tools = context
+        .extra_tools()
+        .into_iter()
+        .filter(|tool| {
+            !excluded_tools
+                .iter()
+                .any(|excluded| excluded == tool.name())
+        })
+        .collect();
+    let deferred_stubs = context
+        .deferred_stubs()
+        .into_iter()
+        .filter(|tool| !excluded_tools.iter().any(|excluded| excluded == &tool.name))
+        .collect();
+    (extra_tools, deferred_stubs)
+}
+
+pub(crate) fn current_runtime_tool_specs(
+    tools_registry: &[Box<dyn Tool>],
+    excluded_tools: &[String],
+) -> Vec<crate::tools::ToolSpec> {
+    let mut tool_specs: Vec<crate::tools::ToolSpec> = tools_registry
+        .iter()
+        .filter(|tool| tool.is_advertised())
+        .filter(|tool| {
+            !excluded_tools
+                .iter()
+                .any(|excluded| excluded == tool.name())
+        })
+        .map(|tool| tool.spec())
+        .collect();
+
+    let (extra_tools, _) = current_runtime_extra_tools(excluded_tools);
+    tool_specs.extend(
+        extra_tools
+            .into_iter()
+            .filter(|tool| tool.is_advertised())
+            .map(|tool| tool.spec()),
+    );
+    tool_specs.sort_by(|left, right| left.name.cmp(&right.name));
+    tool_specs
+}
+
+pub(crate) fn current_deferred_tool_stubs(excluded_tools: &[String]) -> Vec<DeferredToolStub> {
+    let (_, deferred_stubs) = current_runtime_extra_tools(excluded_tools);
+    deferred_stubs
+}
+
+/// Convert tool specs to OpenAI function-calling format for native tool support.
+fn tool_specs_to_openai_format(tool_specs: &[crate::tools::ToolSpec]) -> Vec<serde_json::Value> {
+    tool_specs
         .iter()
         .map(|tool| {
             serde_json::json!({
                 "type": "function",
                 "function": {
-                    "name": tool.name(),
-                    "description": tool.description(),
-                    "parameters": tool.parameters_schema()
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters
                 }
             })
         })
@@ -834,12 +911,6 @@ pub(crate) async fn run_tool_call_loop(
         max_tool_iterations
     };
 
-    let tool_specs: Vec<crate::tools::ToolSpec> = tools_registry
-        .iter()
-        .filter(|tool| !excluded_tools.iter().any(|ex| ex == tool.name()))
-        .map(|tool| tool.spec())
-        .collect();
-    let use_native_tools = provider.supports_native_tools() && !tool_specs.is_empty();
     let turn_id = Uuid::new_v4().to_string();
     let mut seen_tool_signatures: HashSet<(String, String)> = HashSet::new();
     let mut missing_tool_call_retry_used = false;
@@ -870,6 +941,10 @@ pub(crate) async fn run_tool_call_loop(
         if let Some(retry_prompt) = missing_tool_call_retry_prompt.take() {
             history.push(ChatMessage::user(retry_prompt));
         }
+
+        let tool_specs = current_runtime_tool_specs(tools_registry, excluded_tools);
+        let (extra_tools, deferred_tool_stubs) = current_runtime_extra_tools(excluded_tools);
+        let use_native_tools = provider.supports_native_tools() && !tool_specs.is_empty();
 
         let image_marker_count = multimodal::count_image_markers(history);
         if image_marker_count > 0 && !provider.supports_vision() {
@@ -1541,6 +1616,8 @@ pub(crate) async fn run_tool_call_loop(
             execute_tools_parallel(
                 &executable_calls,
                 tools_registry,
+                &extra_tools,
+                &deferred_tool_stubs,
                 observer,
                 cancellation_token.as_ref(),
             )
@@ -1549,6 +1626,8 @@ pub(crate) async fn run_tool_call_loop(
             execute_tools_sequential(
                 &executable_calls,
                 tools_registry,
+                &extra_tools,
+                &deferred_tool_stubs,
                 observer,
                 cancellation_token.as_ref(),
             )
@@ -1670,8 +1749,11 @@ pub(crate) async fn run_tool_call_loop(
 /// Build the tool instruction block for the system prompt from concrete tool
 /// specs so the LLM knows how to invoke tools.
 pub(crate) fn build_tool_instructions(tools_registry: &[Box<dyn Tool>]) -> String {
-    let specs: Vec<crate::tools::ToolSpec> =
-        tools_registry.iter().map(|tool| tool.spec()).collect();
+    let specs: Vec<crate::tools::ToolSpec> = tools_registry
+        .iter()
+        .filter(|tool| tool.is_advertised())
+        .map(|tool| tool.spec())
+        .collect();
     build_tool_instructions_from_specs(&specs)
 }
 
@@ -1706,6 +1788,18 @@ pub(crate) fn build_tool_instructions_from_specs(tool_specs: &[crate::tools::Too
     }
 
     instructions
+}
+
+fn retain_advertised_tool_descriptions<'a>(
+    tool_descs: &mut Vec<(&'a str, &'a str)>,
+    tools_registry: &[Box<dyn Tool>],
+) {
+    let advertised: HashSet<&str> = tools_registry
+        .iter()
+        .filter(|tool| tool.is_advertised())
+        .map(|tool| tool.name())
+        .collect();
+    tool_descs.retain(|(name, _)| advertised.contains(*name));
 }
 
 /// Build shell-policy instructions for the system prompt so the model is aware
@@ -1779,11 +1873,13 @@ pub(crate) fn build_shell_policy_instructions(autonomy: &crate::config::Autonomy
     instructions
 }
 
-fn build_runtime_tool_availability_notice(tools_registry: &[Box<dyn Tool>]) -> String {
+pub(crate) fn build_runtime_tool_availability_notice_from_specs(
+    tool_specs: &[crate::tools::ToolSpec],
+) -> String {
     const MAX_LISTED_TOOLS: usize = 40;
-    let names = tools_registry
+    let names = tool_specs
         .iter()
-        .map(|tool| tool.name())
+        .map(|tool| tool.name.as_str())
         .take(MAX_LISTED_TOOLS)
         .collect::<Vec<_>>()
         .join(", ");
@@ -1848,7 +1944,7 @@ pub async fn run(
     } else {
         (None, None)
     };
-    let mut tools_registry = tools::all_tools_with_runtime(
+    let (mut tools_registry, deferred_tool_context) = tools::all_tools_with_runtime_and_deferred(
         Arc::new(config.clone()),
         &security,
         runtime,
@@ -2045,12 +2141,21 @@ pub async fn run(
             "Query connected hardware for reported GPIO pins and LED pin. Use when: user asks what pins are available.",
         ));
     }
+    retain_advertised_tool_descriptions(&mut tool_descs, &tools_registry);
     let bootstrap_max_chars = if config.agent.compact_context {
         Some(6000)
     } else {
         None
     };
     let native_tools = provider.supports_native_tools();
+    let (prompt_tool_specs, deferred_tool_stubs) =
+        with_deferred_tool_context(deferred_tool_context.clone(), async {
+            (
+                current_runtime_tool_specs(&tools_registry, &[]),
+                current_deferred_tool_stubs(&[]),
+            )
+        })
+        .await;
     let mut system_prompt = crate::channels::build_system_prompt_with_mode(
         &config.workspace_dir,
         model_name,
@@ -2064,10 +2169,15 @@ pub async fn run(
 
     // Append structured tool-use instructions with schemas (only for non-native providers)
     if !native_tools {
-        system_prompt.push_str(&build_tool_instructions(&tools_registry));
+        system_prompt.push_str(&build_tool_instructions_from_specs(&prompt_tool_specs));
     }
+    system_prompt.push_str(&crate::agent::prompt::build_deferred_tools_section(
+        &deferred_tool_stubs,
+    ));
     system_prompt.push_str(&build_shell_policy_instructions(&config.autonomy));
-    system_prompt.push_str(&build_runtime_tool_availability_notice(&tools_registry));
+    system_prompt.push_str(&build_runtime_tool_availability_notice_from_specs(
+        &prompt_tool_specs,
+    ));
 
     // ── Approval manager (supervised mode) ───────────────────────
     let approval_manager = if interactive {
@@ -2112,23 +2222,26 @@ pub async fn run(
             ChatMessage::user(&enriched),
         ];
 
-        let response = run_tool_call_loop(
-            provider.as_ref(),
-            &mut history,
-            &tools_registry,
-            observer.as_ref(),
-            provider_name,
-            model_name,
-            temperature,
-            false,
-            approval_manager.as_ref(),
-            channel_name,
-            &config.multimodal,
-            config.agent.max_tool_iterations,
-            None,
-            None,
-            None,
-            &[],
+        let response = with_deferred_tool_context(
+            deferred_tool_context.clone(),
+            run_tool_call_loop(
+                provider.as_ref(),
+                &mut history,
+                &tools_registry,
+                observer.as_ref(),
+                provider_name,
+                model_name,
+                temperature,
+                false,
+                approval_manager.as_ref(),
+                channel_name,
+                &config.multimodal,
+                config.agent.max_tool_iterations,
+                None,
+                None,
+                None,
+                &[],
+            ),
         )
         .await?;
         final_output = response.clone();
@@ -2232,23 +2345,26 @@ pub async fn run(
 
             history.push(ChatMessage::user(&enriched));
 
-            let response = match run_tool_call_loop(
-                provider.as_ref(),
-                &mut history,
-                &tools_registry,
-                observer.as_ref(),
-                provider_name,
-                model_name,
-                temperature,
-                false,
-                approval_manager.as_ref(),
-                channel_name,
-                &config.multimodal,
-                config.agent.max_tool_iterations,
-                None,
-                None,
-                None,
-                &[],
+            let response = match with_deferred_tool_context(
+                deferred_tool_context.clone(),
+                run_tool_call_loop(
+                    provider.as_ref(),
+                    &mut history,
+                    &tools_registry,
+                    observer.as_ref(),
+                    provider_name,
+                    model_name,
+                    temperature,
+                    false,
+                    approval_manager.as_ref(),
+                    channel_name,
+                    &config.multimodal,
+                    config.agent.max_tool_iterations,
+                    None,
+                    None,
+                    None,
+                    &[],
+                ),
             )
             .await
             {
@@ -2336,7 +2452,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
     } else {
         (None, None)
     };
-    let mut tools_registry = tools::all_tools_with_runtime(
+    let (mut tools_registry, deferred_tool_context) = tools::all_tools_with_runtime_and_deferred(
         Arc::new(config.clone()),
         &security,
         runtime,
@@ -2450,12 +2566,21 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
             "Query connected hardware for reported GPIO pins and LED pin. Use when user asks what pins are available.",
         ));
     }
+    retain_advertised_tool_descriptions(&mut tool_descs, &tools_registry);
     let bootstrap_max_chars = if config.agent.compact_context {
         Some(6000)
     } else {
         None
     };
     let native_tools = provider.supports_native_tools();
+    let (prompt_tool_specs, deferred_tool_stubs) =
+        with_deferred_tool_context(deferred_tool_context.clone(), async {
+            (
+                current_runtime_tool_specs(&tools_registry, &[]),
+                current_deferred_tool_stubs(&[]),
+            )
+        })
+        .await;
     let mut system_prompt = crate::channels::build_system_prompt_with_mode(
         &config.workspace_dir,
         &model_name,
@@ -2467,10 +2592,15 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         config.skills.prompt_injection_mode,
     );
     if !native_tools {
-        system_prompt.push_str(&build_tool_instructions(&tools_registry));
+        system_prompt.push_str(&build_tool_instructions_from_specs(&prompt_tool_specs));
     }
+    system_prompt.push_str(&crate::agent::prompt::build_deferred_tools_section(
+        &deferred_tool_stubs,
+    ));
     system_prompt.push_str(&build_shell_policy_instructions(&config.autonomy));
-    system_prompt.push_str(&build_runtime_tool_availability_notice(&tools_registry));
+    system_prompt.push_str(&build_runtime_tool_availability_notice_from_specs(
+        &prompt_tool_specs,
+    ));
 
     let mem_context = build_context(mem.as_ref(), message, config.memory.min_relevance_score).await;
     let rag_limit = if config.agent.compact_context { 2 } else { 5 };
@@ -2491,17 +2621,20 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         ChatMessage::user(&enriched),
     ];
 
-    agent_turn(
-        provider.as_ref(),
-        &mut history,
-        &tools_registry,
-        observer.as_ref(),
-        provider_name,
-        &model_name,
-        config.default_temperature,
-        true,
-        &config.multimodal,
-        config.agent.max_tool_iterations,
+    with_deferred_tool_context(
+        deferred_tool_context,
+        agent_turn(
+            provider.as_ref(),
+            &mut history,
+            &tools_registry,
+            observer.as_ref(),
+            provider_name,
+            &model_name,
+            config.default_temperature,
+            true,
+            &config.multimodal,
+            config.agent.max_tool_iterations,
+        ),
     )
     .await
 }
@@ -3087,6 +3220,45 @@ mod tests {
         }
     }
 
+    struct DeferredEchoTool;
+
+    #[async_trait]
+    impl Tool for DeferredEchoTool {
+        fn name(&self) -> &str {
+            "remote_browser"
+        }
+
+        fn description(&self) -> &str {
+            "Open a remote browser on a connected MCP-style node"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string" }
+                },
+                "required": ["url"]
+            })
+        }
+
+        async fn execute(
+            &self,
+            args: serde_json::Value,
+        ) -> anyhow::Result<crate::tools::ToolResult> {
+            Ok(crate::tools::ToolResult {
+                success: true,
+                output: format!(
+                    "opened:{}",
+                    args.get("url")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default()
+                ),
+                error: None,
+            })
+        }
+    }
+
     #[tokio::test]
     async fn run_tool_call_loop_returns_structured_error_for_non_vision_provider() {
         let calls = Arc::new(AtomicUsize::new(0));
@@ -3355,6 +3527,123 @@ mod tests {
             idx_a < idx_b,
             "tool results should preserve input order for tool call mapping"
         );
+    }
+
+    #[tokio::test]
+    async fn run_tool_call_loop_activates_deferred_tools_after_tool_search() {
+        let provider = ScriptedProvider::from_text_responses(vec![
+            r#"<tool_call>
+{"name":"tool_search","arguments":{"query":"select:remote_browser"}}
+</tool_call>"#,
+            r#"<tool_call>
+{"name":"remote_browser","arguments":{"url":"https://example.com"}}
+</tool_call>"#,
+            "done",
+        ]);
+
+        let deferred_context = Arc::new(crate::tools::DeferredToolContext::from_tools(vec![
+            Arc::new(DeferredEchoTool),
+        ]));
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("open a browser remotely"),
+        ];
+        let observer = NoopObserver;
+        let tools_registry: Vec<Box<dyn Tool>> = Vec::new();
+
+        let result = with_deferred_tool_context(Some(deferred_context), async {
+            run_tool_call_loop(
+                &provider,
+                &mut history,
+                &tools_registry,
+                &observer,
+                "mock-provider",
+                "mock-model",
+                0.0,
+                true,
+                None,
+                "cli",
+                &crate::config::MultimodalConfig::default(),
+                4,
+                None,
+                None,
+                None,
+                &[],
+            )
+            .await
+        })
+        .await
+        .expect("deferred tool should activate and execute");
+
+        assert_eq!(result, "done");
+        let first_tool_results = history
+            .iter()
+            .find(|msg| msg.role == "user" && msg.content.starts_with("[Tool results]"))
+            .expect("tool results should be recorded");
+        let all_tool_results = history
+            .iter()
+            .filter(|msg| msg.role == "user" && msg.content.starts_with("[Tool results]"))
+            .map(|msg| msg.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(first_tool_results.content.contains("\"activated\": ["));
+        assert!(all_tool_results.contains("opened:https://example.com"));
+    }
+
+    #[tokio::test]
+    async fn run_tool_call_loop_guides_model_to_tool_search_when_deferred_tool_is_called_early() {
+        let provider = ScriptedProvider::from_text_responses(vec![
+            r#"<tool_call>
+{"name":"remote_browser","arguments":{"url":"https://example.com"}}
+</tool_call>"#,
+            "done",
+        ]);
+
+        let deferred_context = Arc::new(crate::tools::DeferredToolContext::from_tools(vec![
+            Arc::new(DeferredEchoTool),
+        ]));
+        let mut history = vec![
+            ChatMessage::system("test-system"),
+            ChatMessage::user("open a browser remotely"),
+        ];
+        let observer = NoopObserver;
+        let tools_registry: Vec<Box<dyn Tool>> = Vec::new();
+
+        let result = with_deferred_tool_context(Some(deferred_context), async {
+            run_tool_call_loop(
+                &provider,
+                &mut history,
+                &tools_registry,
+                &observer,
+                "mock-provider",
+                "mock-model",
+                0.0,
+                true,
+                None,
+                "cli",
+                &crate::config::MultimodalConfig::default(),
+                4,
+                None,
+                None,
+                None,
+                &[],
+            )
+            .await
+        })
+        .await
+        .expect("loop should continue after deferred-tool guidance");
+
+        assert_eq!(result, "done");
+        let tool_results = history
+            .iter()
+            .find(|msg| msg.role == "user" && msg.content.starts_with("[Tool results]"))
+            .expect("tool results should be recorded");
+        assert!(tool_results
+            .content
+            .contains("available for deferred activation"));
+        assert!(tool_results
+            .content
+            .contains("Call `tool_search` with `select:remote_browser` first"));
     }
 
     #[tokio::test]
@@ -4991,7 +5280,12 @@ Tail"#;
             std::path::Path::new("/tmp"),
         ));
         let tools = tools::default_tools(security);
-        let formatted = tools_to_openai_format(&tools);
+        let specs: Vec<crate::tools::ToolSpec> = tools
+            .iter()
+            .filter(|tool| tool.is_advertised())
+            .map(|tool| tool.spec())
+            .collect();
+        let formatted = tool_specs_to_openai_format(&specs);
 
         assert!(!formatted.is_empty());
         for tool_json in &formatted {

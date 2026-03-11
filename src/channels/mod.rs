@@ -70,9 +70,11 @@ pub use whatsapp::WhatsAppChannel;
 pub use whatsapp_web::WhatsAppWebChannel;
 
 use crate::agent::loop_::{
-    build_shell_policy_instructions, build_tool_instructions_from_specs,
+    build_runtime_tool_availability_notice_from_specs, build_shell_policy_instructions,
+    build_tool_instructions_from_specs, current_deferred_tool_stubs, current_runtime_tool_specs,
     run_tool_call_loop_with_non_cli_approval_context, scrub_credentials, NonCliApprovalContext,
 };
+use crate::agent::prompt::build_deferred_tools_section;
 use crate::approval::{ApprovalManager, ApprovalResponse, PendingApprovalError};
 use crate::config::{Config, NonCliNaturalLanguageApprovalMode};
 use crate::identity;
@@ -968,11 +970,19 @@ fn filtered_tool_specs_for_runtime(
     tools_registry: &[Box<dyn Tool>],
     excluded_tools: &[String],
 ) -> Vec<crate::tools::ToolSpec> {
-    tools_registry
-        .iter()
-        .map(|tool| tool.spec())
-        .filter(|spec| !excluded_tools.iter().any(|excluded| excluded == &spec.name))
-        .collect()
+    current_runtime_tool_specs(tools_registry, excluded_tools)
+}
+
+fn retain_runtime_tool_descriptions<'a>(
+    tool_descs: &mut Vec<(&'a str, &'a str)>,
+    tools_registry: &[Box<dyn Tool>],
+    excluded_tools: &[String],
+) {
+    let visible: HashSet<String> = filtered_tool_specs_for_runtime(tools_registry, excluded_tools)
+        .into_iter()
+        .map(|spec| spec.name)
+        .collect();
+    tool_descs.retain(|(name, _)| visible.contains(*name));
 }
 
 fn is_non_cli_tool_excluded(ctx: &ChannelRuntimeContext, tool_name: &str) -> bool {
@@ -991,6 +1001,7 @@ fn build_runtime_tool_visibility_prompt(
     let mut prompt = String::new();
     let mut specs = filtered_tool_specs_for_runtime(tools_registry, excluded_tools);
     specs.sort_by(|a, b| a.name.cmp(&b.name));
+    let deferred_tools = current_deferred_tool_stubs(excluded_tools);
 
     use std::fmt::Write;
     prompt.push_str("\n## Runtime Tool Availability (Authoritative)\n\n");
@@ -1044,6 +1055,7 @@ fn build_runtime_tool_visibility_prompt(
         );
         prompt.push_str(&build_tool_instructions_from_specs(&specs));
     }
+    prompt.push_str(&build_deferred_tools_section(&deferred_tools));
 
     prompt
 }
@@ -4935,6 +4947,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
     if !excluded.is_empty() {
         tool_descs.retain(|(name, _)| !excluded.iter().any(|ex| ex == name));
     }
+    retain_runtime_tool_descriptions(&mut tool_descs, tools_registry.as_ref(), excluded);
 
     let bootstrap_max_chars = if config.agent.compact_context {
         Some(6000)
@@ -4952,11 +4965,16 @@ pub async fn start_channels(config: Config) -> Result<()> {
         native_tools,
         config.skills.prompt_injection_mode,
     );
+    let filtered_specs = filtered_tool_specs_for_runtime(tools_registry.as_ref(), excluded);
+    let deferred_tools = current_deferred_tool_stubs(excluded);
     if !native_tools {
-        let filtered_specs = filtered_tool_specs_for_runtime(tools_registry.as_ref(), excluded);
         system_prompt.push_str(&build_tool_instructions_from_specs(&filtered_specs));
     }
+    system_prompt.push_str(&build_deferred_tools_section(&deferred_tools));
     system_prompt.push_str(&build_shell_policy_instructions(&config.autonomy));
+    system_prompt.push_str(&build_runtime_tool_availability_notice_from_specs(
+        &filtered_specs,
+    ));
 
     if !skills.is_empty() {
         println!(
