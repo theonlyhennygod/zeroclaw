@@ -1012,6 +1012,18 @@ fn hydrate_config_for_save(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory::{Memory, MemoryCategory, MemoryEntry};
+    use crate::providers::Provider;
+    use async_trait::async_trait;
+    use axum::{
+        body::Body,
+        http::{header::AUTHORIZATION, Request},
+        routing::get,
+        Router,
+    };
+    use http_body_util::BodyExt;
+    use std::sync::Arc;
+    use tower::util::ServiceExt;
 
     #[test]
     fn masking_keeps_toml_valid_and_preserves_api_keys_type() {
@@ -1416,5 +1428,170 @@ mod tests {
             .embedding_routes
             .iter()
             .all(|route| route.api_key.as_deref() != Some(MASKED_SECRET)));
+    }
+
+    struct TestProvider;
+
+    #[async_trait]
+    impl Provider for TestProvider {
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            Ok("ok".to_string())
+        }
+    }
+
+    struct TestMemory;
+
+    #[async_trait]
+    impl Memory for TestMemory {
+        fn name(&self) -> &str {
+            "test-memory"
+        }
+
+        async fn store(
+            &self,
+            _key: &str,
+            _content: &str,
+            _category: MemoryCategory,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn recall(
+            &self,
+            _query: &str,
+            _limit: usize,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<MemoryEntry>> {
+            Ok(Vec::new())
+        }
+
+        async fn get(&self, _key: &str) -> anyhow::Result<Option<MemoryEntry>> {
+            Ok(None)
+        }
+
+        async fn list(
+            &self,
+            _category: Option<&MemoryCategory>,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<MemoryEntry>> {
+            Ok(Vec::new())
+        }
+
+        async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
+            Ok(false)
+        }
+
+        async fn count(&self) -> anyhow::Result<usize> {
+            Ok(0)
+        }
+
+        async fn health_check(&self) -> bool {
+            true
+        }
+    }
+
+    fn test_app_state(pairing: Arc<crate::security::pairing::PairingGuard>) -> AppState {
+        let mut config = crate::config::Config::default();
+        config.workspace_dir = std::path::PathBuf::from("/tmp/zeroclaw-canvas-api-test");
+
+        AppState {
+            config: Arc::new(parking_lot::Mutex::new(config)),
+            provider: Arc::new(TestProvider),
+            model: "openai/gpt-4.1-mini".to_string(),
+            temperature: 0.7,
+            mem: Arc::new(TestMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing,
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(crate::gateway::GatewayRateLimiter::new(10, 10, 128)),
+            idempotency_store: Arc::new(crate::gateway::IdempotencyStore::new(
+                std::time::Duration::from_secs(60),
+                128,
+            )),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            linq: None,
+            linq_signing_secret: None,
+            nextcloud_talk: None,
+            nextcloud_talk_webhook_secret: None,
+            wati: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            tools_registry: Arc::new(vec![crate::tools::ToolSpec {
+                name: "shell".to_string(),
+                description: "Execute deterministic shell commands".to_string(),
+                parameters: serde_json::json!({"type": "object"}),
+            }]),
+            cost_tracker: None,
+            event_tx: tokio::sync::broadcast::channel(16).0,
+            shutdown_tx: tokio::sync::watch::channel(false).0,
+        }
+    }
+
+    #[tokio::test]
+    async fn canvas_route_requires_bearer_auth_when_pairing_is_enabled() {
+        let pairing = Arc::new(crate::security::pairing::PairingGuard::new(true, &[]));
+        let app = Router::new()
+            .route("/api/canvas", get(handle_api_canvas))
+            .with_state(test_app_state(pairing));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/canvas")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn canvas_route_returns_snapshot_for_paired_request() {
+        let pairing = Arc::new(crate::security::pairing::PairingGuard::new(true, &[]));
+        let code = pairing
+            .pairing_code()
+            .expect("pairing-enabled guard should issue a code");
+        let token = pairing
+            .try_pair(&code, "canvas-api-test")
+            .await
+            .expect("pair attempt should not lock")
+            .expect("pair attempt should return a token");
+
+        let app = Router::new()
+            .route("/api/canvas", get(handle_api_canvas))
+            .with_state(test_app_state(pairing));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/canvas")
+                    .header(AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(json["title"], "ZeroClaw Canvas");
+        assert_eq!(json["gateway"]["paired"], true);
+        assert_eq!(json["tools"]["total"], 1);
+        assert!(json["lanes"]
+            .as_array()
+            .is_some_and(|lanes| !lanes.is_empty()));
     }
 }

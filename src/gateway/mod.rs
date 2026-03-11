@@ -314,6 +314,12 @@ pub struct AppState {
     pub shutdown_tx: tokio::sync::watch::Sender<bool>,
 }
 
+fn sync_runtime_gateway_addr(config: &Arc<Mutex<Config>>, host: &str, port: u16) {
+    let mut config_guard = config.lock();
+    config_guard.gateway.host = host.to_string();
+    config_guard.gateway.port = port;
+}
+
 /// Run the HTTP gateway using axum with proper HTTP/1.1 compliance.
 #[allow(clippy::too_many_lines)]
 pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
@@ -339,6 +345,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let actual_port = listener.local_addr()?.port();
     let display_addr = format!("{host}:{actual_port}");
+    sync_runtime_gateway_addr(&config_state, host, actual_port);
 
     let provider: Arc<dyn Provider> = Arc::from(providers::create_resilient_provider_with_options(
         config.default_provider.as_deref().unwrap_or("openrouter"),
@@ -1690,6 +1697,17 @@ mod tests {
     fn app_state_is_clone() {
         fn assert_clone<T: Clone>() {}
         assert_clone::<AppState>();
+    }
+
+    #[test]
+    fn sync_runtime_gateway_addr_updates_in_memory_config() {
+        let config = Arc::new(Mutex::new(Config::default()));
+
+        sync_runtime_gateway_addr(&config, "127.0.0.1", 43117);
+
+        let config_guard = config.lock();
+        assert_eq!(config_guard.gateway.host, "127.0.0.1");
+        assert_eq!(config_guard.gateway.port, 43117);
     }
 
     #[tokio::test]
