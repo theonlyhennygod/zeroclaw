@@ -1,32 +1,32 @@
 # Default owner for all files
-* @JordanTheJet @SimianAstronaut7
+* @theonlyhennygod @SimianAstronaut7
 
 # Important functional modules
-/src/agent/** @theonlyhennygod @JordanTheJet @SimianAstronaut7
-/src/providers/** @theonlyhennygod @JordanTheJet @SimianAstronaut7
-/src/channels/** @theonlyhennygod @JordanTheJet @SimianAstronaut7
-/src/tools/** @theonlyhennygod @JordanTheJet @SimianAstronaut7
-/src/gateway/** @theonlyhennygod @JordanTheJet @SimianAstronaut7
-/src/runtime/** @theonlyhennygod @JordanTheJet @SimianAstronaut7
-/src/memory/** @theonlyhennygod @JordanTheJet @SimianAstronaut7
-/Cargo.toml @theonlyhennygod @JordanTheJet @SimianAstronaut7
-/Cargo.lock @theonlyhennygod @JordanTheJet @SimianAstronaut7
+/src/agent/** @theonlyhennygod @SimianAstronaut7
+/src/providers/** @theonlyhennygod @SimianAstronaut7
+/src/channels/** @theonlyhennygod @SimianAstronaut7
+/src/tools/** @theonlyhennygod @SimianAstronaut7
+/src/gateway/** @theonlyhennygod @SimianAstronaut7
+/src/runtime/** @theonlyhennygod @SimianAstronaut7
+/src/memory/** @theonlyhennygod @SimianAstronaut7
+/Cargo.toml @theonlyhennygod @SimianAstronaut7
+/Cargo.lock @theonlyhennygod @SimianAstronaut7
 
 # Security / tests / CI-CD ownership
-/src/security/** @JordanTheJet @SimianAstronaut7
-/tests/** @JordanTheJet @SimianAstronaut7
-/.github/** @JordanTheJet @SimianAstronaut7
-/.github/workflows/** @JordanTheJet @SimianAstronaut7
-/.github/codeql/** @JordanTheJet @SimianAstronaut7
-/.github/dependabot.yml @JordanTheJet @SimianAstronaut7
-/SECURITY.md @JordanTheJet @SimianAstronaut7
-/docs/actions-source-policy.md @JordanTheJet @SimianAstronaut7
-/docs/ci-map.md @JordanTheJet @SimianAstronaut7
+/src/security/** @theonlyhennygod @SimianAstronaut7
+/tests/** @theonlyhennygod @SimianAstronaut7
+/.github/** @theonlyhennygod @SimianAstronaut7
+/.github/workflows/** @theonlyhennygod @SimianAstronaut7
+/.github/codeql/** @theonlyhennygod @SimianAstronaut7
+/.github/dependabot.yml @theonlyhennygod @SimianAstronaut7
+/SECURITY.md @theonlyhennygod @SimianAstronaut7
+/docs/actions-source-policy.md @theonlyhennygod @SimianAstronaut7
+/docs/ci-map.md @theonlyhennygod @SimianAstronaut7
 
 # Docs & governance
-/docs/** @JordanTheJet @SimianAstronaut7
-/AGENTS.md @JordanTheJet @SimianAstronaut7
-/CLAUDE.md @JordanTheJet @SimianAstronaut7
-/CONTRIBUTING.md @JordanTheJet @SimianAstronaut7
-/docs/pr-workflow.md @JordanTheJet @SimianAstronaut7
-/docs/reviewer-playbook.md @JordanTheJet @SimianAstronaut7
+/docs/** @theonlyhennygod @SimianAstronaut7
+/AGENTS.md @theonlyhennygod @SimianAstronaut7
+/CLAUDE.md @theonlyhennygod @SimianAstronaut7
+/CONTRIBUTING.md @theonlyhennygod @SimianAstronaut7
+/docs/pr-workflow.md @theonlyhennygod @SimianAstronaut7
+/docs/reviewer-playbook.md @theonlyhennygod @SimianAstronaut7
