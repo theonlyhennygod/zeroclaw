@@ -1805,7 +1805,7 @@ pub async fn run(
     message: Option<String>,
     provider_override: Option<String>,
     model_override: Option<String>,
-    temperature: f64,
+    temperature: Option<f64>,
     peripheral_overrides: Vec<String>,
     interactive: bool,
 ) -> Result<String> {
@@ -1878,6 +1878,7 @@ pub async fn run(
         .as_deref()
         .or(config.default_model.as_deref())
         .unwrap_or("anthropic/claude-sonnet-4");
+    let temperature = temperature.unwrap_or(config.default_temperature);
 
     let provider_runtime_options = providers::ProviderRuntimeOptions {
         auth_profile_override: None,
