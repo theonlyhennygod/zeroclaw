@@ -450,7 +450,7 @@ mod tests {
     }
 
     async fn test_config(tmp: &TempDir) -> Arc<Config> {
-        let config = Config {
+        let mut config = Config {
             workspace_dir: tmp.path().join("workspace"),
             config_path: tmp.path().join("config.toml"),
             ..Config::default()

@@ -6718,10 +6718,13 @@ impl Config {
         Ok(resolved)
     }
 
-    pub async fn save(&self) -> Result<()> {
+    pub async fn save(&mut self) -> Result<()> {
         // Encrypt secrets before serialization
-        let mut config_to_save = self.clone();
         let config_path = self.resolve_config_path_for_save().await?;
+        // Keep the in-memory config_path in sync so downstream reads
+        // (e.g. proxy_config, model_routing_config) use the resolved path.
+        self.config_path = config_path.clone();
+        let mut config_to_save = self.clone();
         let zeroclaw_dir = config_path
             .parent()
             .context("Config path must have a parent directory")?;
@@ -7685,7 +7688,7 @@ tool_dispatcher = "xml"
         fs::create_dir_all(&dir).await.unwrap();
 
         let config_path = dir.join("config.toml");
-        let config = Config {
+        let mut config = Config {
             workspace_dir: dir.join("workspace"),
             config_path: config_path.clone(),
             api_key: Some("sk-roundtrip".into()),
@@ -10530,6 +10533,10 @@ default_model = "legacy-model"
         config.save().await.unwrap();
 
         assert!(resolved_config_path.exists());
+        assert_eq!(
+            config.config_path, resolved_config_path,
+            "save() must update config_path to the resolved path"
+        );
         let saved = tokio::fs::read_to_string(&resolved_config_path)
             .await
             .unwrap();

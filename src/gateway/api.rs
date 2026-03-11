@@ -543,7 +543,7 @@ pub async fn handle_api_config_put(
     };
 
     let current_config = state.config.lock().clone();
-    let new_config = hydrate_config_for_save(incoming, &current_config);
+    let mut new_config = hydrate_config_for_save(incoming, &current_config);
 
     if let Err(e) = new_config.validate() {
         return (
@@ -752,7 +752,7 @@ pub async fn handle_api_integration_credentials_put(
         }
     }
 
-    let updated = match apply_integration_credentials_update(&current, &id, &body.fields) {
+    let mut updated = match apply_integration_credentials_update(&current, &id, &body.fields) {
         Ok(config) => config,
         Err(error) if error.starts_with("Unknown integration id:") => {
             return (
