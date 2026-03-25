@@ -79,6 +79,7 @@ RUN mkdir -p /zeroclaw-data/.zeroclaw /zeroclaw-data/workspace && \
         'port = 42617' \
         'host = "[::]"' \
         'allow_public_bind = true' \
+        'require_pairing = false' \
         '' \
         '[autonomy]' \
         'level = "supervised"' \

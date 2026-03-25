@@ -10059,6 +10059,11 @@ impl Config {
             self.gateway.allow_public_bind = val == "1" || val.eq_ignore_ascii_case("true");
         }
 
+        // Require pairing: ZEROCLAW_REQUIRE_PAIRING
+        if let Ok(val) = std::env::var("ZEROCLAW_REQUIRE_PAIRING") {
+            self.gateway.require_pairing = val == "1" || val.eq_ignore_ascii_case("true");
+        }
+
         // Temperature: ZEROCLAW_TEMPERATURE
         if let Ok(temp_str) = std::env::var("ZEROCLAW_TEMPERATURE") {
             match temp_str.parse::<f64>() {
@@ -13936,6 +13941,23 @@ default_model = "persisted-profile"
         assert_eq!(config.gateway.host, "0.0.0.0");
 
         std::env::remove_var("HOST");
+    }
+
+    #[test]
+    async fn env_override_require_pairing() {
+        let _env_guard = env_override_lock().await;
+        let mut config = Config::default();
+        assert!(config.gateway.require_pairing);
+
+        std::env::set_var("ZEROCLAW_REQUIRE_PAIRING", "false");
+        config.apply_env_overrides();
+        assert!(!config.gateway.require_pairing);
+
+        std::env::set_var("ZEROCLAW_REQUIRE_PAIRING", "true");
+        config.apply_env_overrides();
+        assert!(config.gateway.require_pairing);
+
+        std::env::remove_var("ZEROCLAW_REQUIRE_PAIRING");
     }
 
     #[test]
