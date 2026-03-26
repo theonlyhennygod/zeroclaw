@@ -269,6 +269,15 @@ fn now_secs() -> u64 {
 /// Deduplication set capacity — evict half of entries when full.
 const DEDUP_CAPACITY: usize = 10_000;
 
+/// Maximum number of retry attempts when fetching the access token.
+const AUTH_RETRY_MAX_ATTEMPTS: u32 = 4;
+
+/// Initial backoff delay for auth token retry (in milliseconds).
+const AUTH_RETRY_INITIAL_BACKOFF_MS: u64 = 500;
+
+/// Maximum backoff delay for auth token retry (in milliseconds).
+const AUTH_RETRY_MAX_BACKOFF_MS: u64 = 8_000;
+
 /// QQ Official Bot channel — uses Tencent's official QQ Bot API with
 /// OAuth2 authentication and a Discord-like WebSocket gateway protocol.
 pub struct QQChannel {
@@ -374,6 +383,50 @@ impl QQChannel {
         Ok((token, expiry))
     }
 
+    /// Fetch an access token with retry and exponential backoff.
+    ///
+    /// Transient failures (network errors, 5xx responses) during reconnection
+    /// can cause the entire recovery loop to fail. This method retries up to
+    /// `AUTH_RETRY_MAX_ATTEMPTS` times with exponential backoff + jitter so
+    /// that a single transient error doesn't permanently break the reconnect
+    /// flow (see issue #4745).
+    async fn fetch_access_token_with_retry(&self) -> anyhow::Result<(String, u64)> {
+        let mut backoff_ms = AUTH_RETRY_INITIAL_BACKOFF_MS;
+        let mut last_err = None;
+
+        for attempt in 1..=AUTH_RETRY_MAX_ATTEMPTS {
+            match self.fetch_access_token().await {
+                Ok(result) => {
+                    if attempt > 1 {
+                        tracing::info!(
+                            "QQ: getAppAccessToken succeeded on attempt {attempt}/{AUTH_RETRY_MAX_ATTEMPTS}"
+                        );
+                    }
+                    return Ok(result);
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "QQ: getAppAccessToken failed (attempt {attempt}/{AUTH_RETRY_MAX_ATTEMPTS}): {e}"
+                    );
+                    last_err = Some(e);
+
+                    if attempt < AUTH_RETRY_MAX_ATTEMPTS {
+                        // Add jitter: 75%-125% of base backoff
+                        let jitter_factor = 0.75 + (rand::random::<f64>() * 0.5);
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                        let sleep_ms = (backoff_ms as f64 * jitter_factor) as u64;
+                        tokio::time::sleep(std::time::Duration::from_millis(sleep_ms)).await;
+                        backoff_ms = (backoff_ms * 2).min(AUTH_RETRY_MAX_BACKOFF_MS);
+                    }
+                }
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| {
+            anyhow::anyhow!("QQ: getAppAccessToken failed after {AUTH_RETRY_MAX_ATTEMPTS} attempts")
+        }))
+    }
+
     /// Get a valid access token, refreshing if expired.
     async fn get_token(&self) -> anyhow::Result<String> {
         let now = std::time::SystemTime::now()
@@ -390,7 +443,7 @@ impl QQChannel {
             }
         }
 
-        let (token, expiry) = self.fetch_access_token().await?;
+        let (token, expiry) = self.fetch_access_token_with_retry().await?;
         {
             let mut cache = self.token_cache.write().await;
             *cache = Some((token.clone(), expiry));
@@ -1350,7 +1403,7 @@ impl Channel for QQChannel {
     }
 
     async fn health_check(&self) -> bool {
-        self.fetch_access_token().await.is_ok()
+        self.fetch_access_token_with_retry().await.is_ok()
     }
 }
 
@@ -1815,6 +1868,63 @@ allowed_users = ["user1"]
         let ch = make_channel();
         assert!(ch.check_reply_allowed("msg_a").await);
         assert!(ch.check_reply_allowed("msg_b").await);
+    }
+
+    // --- Auth retry tests ---
+
+    #[test]
+    fn test_auth_retry_constants_are_sensible() {
+        const {
+            assert!(AUTH_RETRY_MAX_ATTEMPTS >= 2, "should retry at least once");
+            assert!(
+                AUTH_RETRY_INITIAL_BACKOFF_MS > 0,
+                "initial backoff must be positive"
+            );
+            assert!(
+                AUTH_RETRY_MAX_BACKOFF_MS >= AUTH_RETRY_INITIAL_BACKOFF_MS,
+                "max backoff must be >= initial"
+            );
+        }
+    }
+
+    #[test]
+    fn test_auth_retry_backoff_stays_within_bounds() {
+        // Simulate the backoff progression and verify it caps at max
+        let mut backoff = AUTH_RETRY_INITIAL_BACKOFF_MS;
+        for _ in 1..AUTH_RETRY_MAX_ATTEMPTS {
+            backoff = (backoff * 2).min(AUTH_RETRY_MAX_BACKOFF_MS);
+        }
+        assert!(
+            backoff <= AUTH_RETRY_MAX_BACKOFF_MS,
+            "backoff must never exceed the configured maximum"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_token_returns_cached_token_without_fetch() {
+        let ch = make_channel();
+        // Pre-populate the token cache with a token that expires far in the future
+        let future_expiry = now_secs() + 3600;
+        *ch.token_cache.write().await = Some(("cached_tok".to_string(), future_expiry));
+
+        // get_token should return the cached value without hitting the network
+        let tok = ch.get_token().await.unwrap();
+        assert_eq!(tok, "cached_tok");
+    }
+
+    #[tokio::test]
+    async fn test_get_token_refreshes_expired_cache() {
+        let ch = make_channel();
+        // Pre-populate with an already-expired token
+        *ch.token_cache.write().await = Some(("old_tok".to_string(), 0));
+
+        // get_token should try to refresh -- will fail because there's no real
+        // server, but the important thing is it doesn't return the stale token.
+        let result = ch.get_token().await;
+        assert!(
+            result.is_err(),
+            "should fail when token expired and no server available"
+        );
     }
 
     // --- Heartbeat stability tests ---
