@@ -1849,15 +1849,18 @@ allowed_users = ["user1"]
         // First tick: counter is 0, send heartbeat
         assert!(missed < max_missed);
         missed += 1;
+        assert_eq!(missed, 1, "counter should be 1 after first heartbeat");
 
         // ACK received: reset
         missed = 0;
+        assert_eq!(missed, 0, "counter should reset on ACK");
 
         // 3 consecutive misses without ACK
-        for i in 0..max_missed {
-            if missed > 0 && missed >= max_missed {
-                panic!("should not reach zombie state at miss count {i}");
-            }
+        for _ in 0..max_missed {
+            assert!(
+                missed < max_missed,
+                "should not reach zombie state before {max_missed} misses"
+            );
             missed += 1;
         }
         assert!(
