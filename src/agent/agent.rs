@@ -1739,15 +1739,17 @@ mod tests {
             let mut count = self.call_count.lock();
             *count += 1;
             if *count == 1 {
-                let tc = crate::providers::traits::StreamEvent::ToolCall(
-                    crate::providers::ToolCall {
+                let tc =
+                    crate::providers::traits::StreamEvent::ToolCall(crate::providers::ToolCall {
                         id: "tc_stream_1".into(),
                         name: "echo".into(),
                         arguments: "{}".into(),
-                    },
-                );
-                stream::iter(vec![Ok(tc), Ok(crate::providers::traits::StreamEvent::Final)])
-                    .boxed()
+                    });
+                stream::iter(vec![
+                    Ok(tc),
+                    Ok(crate::providers::traits::StreamEvent::Final),
+                ])
+                .boxed()
             } else {
                 let chunk = crate::providers::traits::StreamEvent::TextDelta(
                     crate::providers::traits::StreamChunk {
